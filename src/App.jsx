@@ -8,30 +8,39 @@ import {
 } from './lib/api'
 
 const CHI = [41.8781, -87.6298]
+const TYPES = ['bar', 'restaurant', 'hotel', 'theater', 'other']
+const LABEL_ZOOM = 15
 
 export default function App() {
   const [user, setUser] = useState(null)
   const [spots, setSpots] = useState([])
-  const [lists, setLists] = useState({})           // spotId -> {wishlist, visited}
-  const [pending, setPending] = useState([])        // {id, photoId, photoUrl, prefill}
-  const [candidates, setCandidates] = useState({})  // pendingId -> [results]
+  const [lists, setLists] = useState({})
+  const [review, setReview] = useState([])       // proposed matches, not yet saved
+  const [pending, setPending] = useState([])      // couldn't place -> manual search
+  const [candidates, setCandidates] = useState({})// pendingId -> results | 'loading'
   const [filters, setFilters] = useState({ view: 'all', type: 'all', hood: 'all' })
   const [status, setStatus] = useState('')
-  const [staged, setStaged] = useState(null)        // {file, url}
+  const [staged, setStaged] = useState(null)
   const [modalId, setModalId] = useState(null)
   const [gIndex, setGIndex] = useState(0)
 
   const mapEl = useRef(null)
   const mapRef = useRef(null)
   const layerRef = useRef(null)
+  const timers = useRef({})
 
   /* ----- boot ----- */
   useEffect(() => {
-    mapRef.current = L.map(mapEl.current, { scrollWheelZoom: false }).setView(CHI, 12)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, attribution: '© OpenStreetMap',
-    }).addTo(mapRef.current)
-    layerRef.current = L.layerGroup().addTo(mapRef.current)
+    const map = L.map(mapEl.current, { scrollWheelZoom: false }).setView(CHI, 12)
+    // Clean, low-clutter basemap (CARTO Positron) instead of the busy default tiles
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      subdomains: 'abcd', maxZoom: 20, attribution: '© OpenStreetMap © CARTO',
+    }).addTo(map)
+    layerRef.current = L.layerGroup().addTo(map)
+    map.on('zoomend', () => {
+      map.getContainer().classList.toggle('labels-on', map.getZoom() >= LABEL_ZOOM)
+    })
+    mapRef.current = map
 
     window.__openSpot = (id) => { setModalId(id); setGIndex(0) }
     ;(async () => {
@@ -39,22 +48,20 @@ export default function App() {
       setUser(u)
       await refresh(u?.id)
     })()
-    return () => { mapRef.current?.remove() }
+    return () => { map.remove() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function refresh(userId) {
     try {
       const [sp, ul] = await Promise.all([loadSpots(), loadUserLists(userId)])
-      setSpots(sp)
-      setLists(ul)
+      setSpots(sp); setLists(ul)
     } catch (e) {
       console.warn(e)
       setStatus('Could not load the map yet — check the Supabase setup in the README.')
     }
   }
 
-  /* ----- merge user lists onto spots ----- */
   const enriched = useMemo(() => spots.map((s) => ({
     ...s,
     wishlist: lists[s.id]?.wishlist || false,
@@ -74,10 +81,10 @@ export default function App() {
     return true
   }), [enriched, filters])
 
-  /* ----- draw markers when visible set changes ----- */
+  /* ----- markers ----- */
   useEffect(() => {
-    const layer = layerRef.current
-    if (!layer) return
+    const layer = layerRef.current, map = mapRef.current
+    if (!layer || !map) return
     layer.clearLayers()
     const ms = []
     visible.forEach((s) => {
@@ -91,21 +98,19 @@ export default function App() {
         `<span class="pop-meta">${s.type}${s.status === 'closed' ? ' · closed' : ''}${meta ? '<br>' + esc(meta) : ''}</span><br>` +
         `<button class="popbtn" onclick="window.__openSpot('${s.id}')">View photos (${s.photos.length})</button>`
       )
-      layer.addLayer(m)
-      ms.push(m)
+      // permanent label, shown only when zoomed in (gated by the .labels-on class via CSS)
+      m.bindTooltip(s.name, { permanent: true, direction: 'top', offset: [0, -14], className: 'mb-label' })
+      layer.addLayer(m); ms.push(m)
     })
-    if (ms.length) {
-      const g = L.featureGroup(ms)
-      mapRef.current.fitBounds(g.getBounds().pad(0.25))
-    }
+    map.getContainer().classList.toggle('labels-on', map.getZoom() >= LABEL_ZOOM)
+    if (ms.length) map.fitBounds(L.featureGroup(ms).getBounds().pad(0.25))
   }, [visible])
 
-  /* ----- upload + read ----- */
+  /* ----- upload + read -> build a review list (nothing saved yet) ----- */
   function onFile(e) {
     const f = e.target.files[0]
     if (!f) return
-    const url = URL.createObjectURL(f)
-    setStaged({ file: f, url })
+    setStaged({ file: f, url: URL.createObjectURL(f) })
   }
 
   async function handleUpload() {
@@ -115,23 +120,16 @@ export default function App() {
     try {
       const up = await uploadPhoto(staged.file, user.id)
       photo = await insertPhoto({ path: up.path, publicUrl: up.publicUrl, userId: user.id })
-    } catch (e) {
-      setStatus('Upload failed — check the storage bucket in the README.')
-      return
-    }
+    } catch (e) { setStatus('Upload failed — check the storage bucket in the README.'); return }
 
     setStatus('Reading the covers…')
     let items = [], unreadable = 0
     try {
       const res = await readMatchbooks(photo.public_url)
       items = res.items || []; unreadable = res.unreadable || 0
-    } catch (e) {
-      setStatus('Couldn’t read that photo — try a sharper, closer shot.')
-      return
-    }
+    } catch (e) { setStatus('Couldn’t read that photo — try a sharper, closer shot.'); return }
 
-    const newPending = []
-    let placed = 0
+    const drafts = [], newPending = []
     for (let i = 0; i < items.length && i < 12; i++) {
       const it = items[i]
       setStatus(`Placing ${i + 1}/${Math.min(items.length, 12)}: ${it.name}`)
@@ -139,56 +137,85 @@ export default function App() {
       const cands = await searchPlaces(query)
       if (cands.length) {
         const c = cands[0]
-        const spot = await upsertSpot({
-          name: it.name, address: c.address || it.address, neighborhood: c.neighborhood || it.neighborhood,
-          type: it.type || c.type || 'bar', status: it.status || 'unknown',
-          lat: c.lat, lng: c.lng, approx: false,
+        drafts.push({
+          tempId: crypto.randomUUID(), photoId: photo.id, photoUrl: photo.public_url,
+          name: it.name, type: it.type || c.type || 'other',
+          address: c.address || it.address || '', neighborhood: c.neighborhood || it.neighborhood || '',
+          lat: c.lat, lng: c.lng, status: it.status || 'unknown',
         })
-        await linkSpotPhoto(spot.id, photo.id)
-        placed++
       } else {
         newPending.push({ id: crypto.randomUUID(), photoId: photo.id, photoUrl: photo.public_url, prefill: it.name || '' })
       }
     }
-    for (let k = 0; k < unreadable; k++) {
+    for (let k = 0; k < unreadable; k++)
       newPending.push({ id: crypto.randomUUID(), photoId: photo.id, photoUrl: photo.public_url, prefill: '' })
-    }
 
+    setReview((r) => [...drafts, ...r])
     setPending((p) => [...newPending, ...p])
     setStaged(null)
-    setStatus(`Added ${placed} spot${placed === 1 ? '' : 's'}${newPending.length ? ` · ${newPending.length} need placing below` : ''}.`)
-    await refresh(user.id)
-    // auto-run search for pending items that came with a name
+    setStatus(drafts.length
+      ? `Review ${drafts.length} match${drafts.length === 1 ? '' : 'es'} below — nothing’s saved yet.`
+      : (newPending.length ? 'Couldn’t place these — search for each below.' : 'No readable matchbooks found.'))
     newPending.filter((p) => p.prefill).forEach((p) => runSearch(p.id, p.prefill))
   }
 
-  /* ----- manual assignment ----- */
+  /* ----- review actions ----- */
+  function updateDraft(id, patch) { setReview((r) => r.map((d) => (d.tempId === id ? { ...d, ...patch } : d))) }
+  function removeDraft(id) { setReview((r) => r.filter((d) => d.tempId !== id)) }
+  function draftToPending(d) {
+    const id = crypto.randomUUID()
+    setPending((p) => [{ id, photoId: d.photoId, photoUrl: d.photoUrl, prefill: d.name }, ...p])
+    setReview((r) => r.filter((x) => x.tempId !== d.tempId))
+    runSearch(id, d.name)
+  }
+  async function saveReview() {
+    if (!review.length) return
+    setStatus('Saving…')
+    for (const d of review) {
+      const spot = await upsertSpot({
+        name: d.name, address: d.address, neighborhood: d.neighborhood,
+        type: d.type, status: d.status, lat: d.lat, lng: d.lng, approx: false,
+      })
+      await linkSpotPhoto(spot.id, d.photoId)
+    }
+    const n = review.length
+    setReview([]); setStatus(`Saved ${n} spot${n === 1 ? '' : 's'}.`)
+    await refresh(user.id)
+  }
+
+  /* ----- manual assignment (live search dropdown) ----- */
+  function onAssignInput(pendId, val) {
+    clearTimeout(timers.current[pendId])
+    timers.current[pendId] = setTimeout(() => runSearch(pendId, val), 350)
+  }
   async function runSearch(pendId, query) {
-    if (!query.trim()) return
+    if (!query || !query.trim()) { setCandidates((c) => ({ ...c, [pendId]: [] })); return }
     setCandidates((c) => ({ ...c, [pendId]: 'loading' }))
     const res = await searchPlaces(query)
     setCandidates((c) => ({ ...c, [pendId]: res }))
   }
-
+  function dismissPending(id) {
+    clearTimeout(timers.current[id])
+    setPending((p) => p.filter((x) => x.id !== id))
+    setCandidates((c) => { const n = { ...c }; delete n[id]; return n })
+  }
   async function assign(pend, cand) {
     const spot = await upsertSpot({
       name: cand.name, address: cand.address, neighborhood: cand.neighborhood,
-      type: cand.type || 'bar', status: 'unknown', lat: cand.lat, lng: cand.lng, approx: false,
+      type: cand.type || 'other', status: 'unknown', lat: cand.lat, lng: cand.lng, approx: false,
     })
     await linkSpotPhoto(spot.id, pend.photoId)
-    setPending((p) => p.filter((x) => x.id !== pend.id))
-    setCandidates((c) => { const n = { ...c }; delete n[pend.id]; return n })
+    dismissPending(pend.id)
     await refresh(user.id)
   }
 
-  /* ----- wishlist / visited ----- */
+  /* ----- lists ----- */
   async function toggle(spotId, key) {
     const cur = lists[spotId] || { wishlist: false, visited: false }
     const next = { ...cur, [key]: !cur[key] }
-    setLists((l) => ({ ...l, [spotId]: next }))          // optimistic
+    setLists((l) => ({ ...l, [spotId]: next }))
     if (user) await setUserList(user.id, spotId, { [key]: next[key] })
   }
-
   async function changeType(spotId, type) {
     setSpots((ss) => ss.map((s) => (s.id === spotId ? { ...s, type } : s)))
     await updateSpotType(spotId, type)
@@ -203,7 +230,7 @@ export default function App() {
           <div className="match"><div className="stick" /><div className="head flame" /></div>
           <h1>Struck<span className="sub">Chicago matchbook map</span></h1>
         </div>
-        <p className="lede">Add a photo of a matchbook. It reads the covers and maps each spot. Can’t read one? Search and pin it yourself. Every photo of a place stacks up in its gallery.</p>
+        <p className="lede">Add a photo of a matchbook. It reads the covers, you review the matches, and each spot drops on the map. Can’t read one? Search and pin it yourself.</p>
         <p className="who">{user ? 'Your wishlist and been-there are saved to this browser.' : 'Connecting…'}</p>
       </header>
 
@@ -218,9 +245,67 @@ export default function App() {
               ? <img src={staged.url} alt="staged matchbook" />
               : <div className="hint"><b>Tap to add a photo</b><br />a single cover or a full spread</div>}
           </label>
-          <button className="go" onClick={handleUpload} disabled={!staged}>Map these matchbooks</button>
+          <button className="go" onClick={handleUpload} disabled={!staged}>Read these matchbooks</button>
           <div className="status">{status}</div>
 
+          {/* ---------- staging: review + manual assign (nothing saved until you confirm) ---------- */}
+          {(review.length > 0 || pending.length > 0) && (
+            <div className="staging">
+              {review.length > 0 && (
+                <>
+                  <div className="stage-h">Review {review.length} match{review.length === 1 ? '' : 'es'} · not saved yet</div>
+                  {review.map((d) => (
+                    <div className="draft" key={d.tempId}>
+                      <img className="thumb" src={d.photoUrl} alt="" />
+                      <div className="grow">
+                        <input className="draft-name" value={d.name}
+                          onChange={(e) => updateDraft(d.tempId, { name: e.target.value })} />
+                        <div className="draft-addr">{[d.neighborhood, d.address].filter(Boolean).join(' · ') || 'located'}</div>
+                        <div className="draft-row">
+                          <select value={d.type} onChange={(e) => updateDraft(d.tempId, { type: e.target.value })}>
+                            {TYPES.map((t) => <option key={t} value={t}>{cap(t)}</option>)}
+                          </select>
+                          <button className="linkbtn" onClick={() => draftToPending(d)}>Wrong spot?</button>
+                        </div>
+                      </div>
+                      <button className="xbtn" title="Discard" onClick={() => removeDraft(d.tempId)}>×</button>
+                    </div>
+                  ))}
+                  <div className="stage-actions">
+                    <button className="go save" onClick={saveReview}>Save {review.length} to map</button>
+                    <button className="ghost" onClick={() => setReview([])}>Discard all</button>
+                  </div>
+                </>
+              )}
+
+              {pending.map((p) => (
+                <div className="assign" key={p.id}>
+                  <img src={p.photoUrl} alt="unplaced matchbook" />
+                  <div className="body">
+                    <div className="assign-head">
+                      <span className="lbl">Couldn’t place — search it</span>
+                      <button className="xbtn" title="Dismiss" onClick={() => dismissPending(p.id)}>×</button>
+                    </div>
+                    <input defaultValue={p.prefill} placeholder="Type a bar, restaurant, hotel…"
+                      onChange={(e) => onAssignInput(p.id, e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runSearch(p.id, e.currentTarget.value) } }} />
+                    <div>
+                      {candidates[p.id] === 'loading' && <div className="hint-sm">searching…</div>}
+                      {Array.isArray(candidates[p.id]) && candidates[p.id].length === 0 &&
+                        <div className="hint-sm">start typing to see matches</div>}
+                      {Array.isArray(candidates[p.id]) && candidates[p.id].map((c, i) => (
+                        <button className="cand" key={i} onClick={() => assign(p, c)}>
+                          {c.name}<br /><small>{[c.neighborhood, c.address].filter(Boolean).join(' · ')}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ---------- filters ---------- */}
           <div className="filters">
             <div className="viewtabs">
               {['all', 'wishlist', 'visited'].map((v) => (
@@ -234,9 +319,7 @@ export default function App() {
               <label>Type
                 <select value={filters.type} onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value }))}>
                   <option value="all">All types</option>
-                  <option value="bar">Bar</option>
-                  <option value="restaurant">Restaurant</option>
-                  <option value="other">Other</option>
+                  {TYPES.map((t) => <option key={t} value={t}>{cap(t)}</option>)}
                 </select>
               </label>
               <label>Neighborhood
@@ -248,34 +331,15 @@ export default function App() {
             </div>
           </div>
 
-          {/* assignment queue */}
-          {pending.map((p) => (
-            <div className="assign" key={p.id}>
-              <img src={p.photoUrl} alt="unplaced matchbook" />
-              <div className="body">
-                <div className="lbl">Couldn’t place this one</div>
-                <input defaultValue={p.prefill} placeholder="Search a bar or restaurant…"
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runSearch(p.id, e.currentTarget.value) } }} />
-                <div>
-                  {candidates[p.id] === 'loading' && <div style={{ fontSize: 12, color: '#8a7c63', marginTop: 6 }}>searching…</div>}
-                  {Array.isArray(candidates[p.id]) && candidates[p.id].length === 0 &&
-                    <div style={{ fontSize: 12, color: '#8a7c63', marginTop: 6 }}>no matches — try another name</div>}
-                  {Array.isArray(candidates[p.id]) && candidates[p.id].map((c, i) => (
-                    <button className="cand" key={i} onClick={() => assign(p, c)}>
-                      {c.name}<br /><small>{c.address}</small>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {/* results list */}
+          {/* ---------- results ---------- */}
           {enriched.length > 0 && <div className="results-h">{visible.length} spot{visible.length === 1 ? '' : 's'}</div>}
           {visible.slice().sort((a, b) => a.name.localeCompare(b.name)).map((s) => (
             <div className="spot" key={s.id} onClick={() => { setModalId(s.id); setGIndex(0) }}>
               <div className="top">
-                <div>
+                {s.photos[0]
+                  ? <img className="thumb" src={s.photos[0].public_url} alt="" />
+                  : <div className="thumb ph" />}
+                <div className="grow">
                   <div className="nm">{s.name}</div>
                   <div className="meta">
                     <span className={'tag ' + s.type}>{s.type}</span>
@@ -300,7 +364,7 @@ export default function App() {
       </div>
 
       <footer>
-        Placed spots come from geocoding cover art, so vintage or renamed places may sit approximately (orange pins) — search and re-pin any that look off. Gold pins are on your wishlist.
+        Clean map by CARTO. Gold pins are on your wishlist; orange pins are approximate. Zoom in to see place names on the map.
       </footer>
 
       {modalSpot && (
@@ -345,9 +409,7 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, onType }) {
         </div>
         <div className="mtype">Type
           <select value={spot.type} onChange={(e) => onType(spot.id, e.target.value)}>
-            <option value="bar">Bar</option>
-            <option value="restaurant">Restaurant</option>
-            <option value="other">Other</option>
+            {TYPES.map((t) => <option key={t} value={t}>{cap(t)}</option>)}
           </select>
         </div>
       </div>
@@ -355,6 +417,7 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, onType }) {
   )
 }
 
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1) }
 function esc(s) {
   return String(s || '').replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
