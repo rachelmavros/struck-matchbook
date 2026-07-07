@@ -11,7 +11,7 @@ matchbook's cover (not the whole photo). bbox is [xmin,ymin,xmax,ymax] as fracti
 width/height (0 = left/top edge, 1 = right/bottom edge).
 
 Return ONLY JSON, no prose, no code fences:
-{"items":[{"name":string,"address":string|null,"neighborhood":string|null,"type":"bar"|"restaurant"|"hotel"|"theater"|"other","status":"open"|"closed"|"unknown","bbox":[number,number,number,number]}],"unreadable":number}
+{"items":[{"name":string,"address":string|null,"neighborhood":string|null,"type":"bar"|"restaurant"|"coffee_shop"|"hotel"|"theater"|"other","status":"open"|"closed"|"unknown","bbox":[number,number,number,number]}],"unreadable":number}
 
 Prefer any street address or phone actually printed on the box. "unreadable" = number of matchbooks
 visible but whose name you cannot read (these don't need a bbox). If there are more than 16 legible
