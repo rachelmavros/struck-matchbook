@@ -11,10 +11,18 @@ import {
 } from './lib/api'
 
 const CHI = [41.8781, -87.6298]
-const TYPES = ['bar', 'restaurant', 'hotel', 'theater', 'other']
+const TYPES = ['bar', 'restaurant', 'coffee_shop', 'hotel', 'theater', 'other']
+const TYPE_LABELS = { coffee_shop: 'Coffee Shop', bar: 'Bar', restaurant: 'Restaurant', hotel: 'Hotel', theater: 'Theater', other: 'Other' }
+const typeLabel = (t) => TYPE_LABELS[t] || cap(t)
 
-// A few Google/OSM neighborhood labels read oddly to locals — rename them for display.
-const HOOD_ALIASES = { 'Financial District': 'The Loop' }
+// A few Google/OSM neighborhood labels read oddly, or split up areas locals treat as one — merge them.
+const HOOD_ALIASES = {
+  'Financial District': 'The Loop',
+  'Loop': 'The Loop',
+  'Rush Street': 'Gold Coast',
+  'West Loop Gate': 'West Loop',
+  'Near North Side': 'River North',
+}
 const hoodLabel = (h) => (h ? (HOOD_ALIASES[h] || h) : h)
 
 // Map popups / list rows want "226 W Kinzie St, River North" — not the full county+zip string.
@@ -93,6 +101,7 @@ export default function App() {
   const layerRef = useRef(null)
   const timers = useRef({})
   const baseZoomRef = useRef(12) // zoom level right after fitting to the current pins
+  const showLabelsNowRef = useRef(false) // true when the current filtered set is small enough to just show names
 
   /* ----- boot ----- */
   useEffect(() => {
@@ -103,8 +112,10 @@ export default function App() {
     layerRef.current = L.layerGroup().addTo(map)
 
     const updateLabels = () => {
-      // Labels appear after exactly one zoom-in step past wherever we last fit the pins.
-      map.getContainer().classList.toggle('labels-on', map.getZoom() >= baseZoomRef.current + 1)
+      // Labels show immediately for a small filtered set (e.g. one neighborhood), otherwise
+      // after one zoom-in step past wherever we last fit the pins.
+      const shouldShow = showLabelsNowRef.current || map.getZoom() >= baseZoomRef.current + 1
+      map.getContainer().classList.toggle('labels-on', shouldShow)
     }
     map.on('zoomend', updateLabels)
     mapRef.current = map
@@ -163,7 +174,7 @@ export default function App() {
       const meta = shortAddress(s.address, s.neighborhood)
       m.bindPopup(
         `<b>${esc(s.name)}</b><br>` +
-        `<span class="pop-meta">${s.type}${s.status === 'closed' ? ' · closed' : ''}${meta ? '<br>' + esc(meta) : ''}</span><br>` +
+        `<span class="pop-meta">${esc(typeLabel(s.type))}${s.status === 'closed' ? ' · closed' : ''}${meta ? '<br>' + esc(meta) : ''}</span><br>` +
         `<button class="popbtn" onclick="window.__openSpot('${s.id}')">View photos (${s.photos.length})</button> ` +
         `<a class="popbtn poplink" href="${mapsUrl(s.name, s.address)}" target="_blank" rel="noopener">Google Maps ↗</a>`
       )
@@ -171,7 +182,10 @@ export default function App() {
       layer.addLayer(m); ms.push(m)
     })
     if (ms.length) {
-      map.fitBounds(L.featureGroup(ms).getBounds().pad(0.25), { animate: false })
+      // Small sets (e.g. one neighborhood, or just a couple pins) get names right away and a
+      // gentler max zoom so 1-2 spots don't snap in to a jarring street-level close-up.
+      showLabelsNowRef.current = ms.length <= 15
+      map.fitBounds(L.featureGroup(ms).getBounds().pad(0.3), { animate: false, maxZoom: 16 })
       baseZoomRef.current = map.getZoom()
     }
     map._updateLabels?.()
@@ -351,7 +365,7 @@ export default function App() {
                         <div className="draft-addr">{[d.neighborhood, d.address].filter(Boolean).join(' · ') || 'located'}</div>
                         <div className="draft-row">
                           <select value={d.type} onChange={(e) => updateDraft(d.tempId, { type: e.target.value })}>
-                            {TYPES.map((t) => <option key={t} value={t}>{cap(t)}</option>)}
+                            {TYPES.map((t) => <option key={t} value={t}>{typeLabel(t)}</option>)}
                           </select>
                           <button className="linkbtn" onClick={() => draftToPending(d)}>Wrong spot?</button>
                         </div>
@@ -407,7 +421,7 @@ export default function App() {
               <label>Type
                 <select value={filters.type} onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value }))}>
                   <option value="all">All types</option>
-                  {TYPES.map((t) => <option key={t} value={t}>{cap(t)}</option>)}
+                  {TYPES.map((t) => <option key={t} value={t}>{typeLabel(t)}</option>)}
                 </select>
               </label>
               <label>Neighborhood
@@ -430,7 +444,7 @@ export default function App() {
                 <div className="grow">
                   <div className="nm">{s.name}</div>
                   <div className="meta">
-                    <span className={'tag ' + s.type}>{s.type}</span>
+                    <span className={'tag ' + s.type}>{typeLabel(s.type)}</span>
                     {s.status === 'closed' && <span className="tag closed">closed</span>}
                     {s.approx && <span className="tag approx">approx</span>}
                     {shortAddress(s.address, s.neighborhood)}
