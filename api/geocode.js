@@ -5,12 +5,19 @@
 // and includes a "debug" field describing what went wrong so it's visible from the browser Network tab.
 
 const CHICAGO = { lat: 41.8781, lng: -87.6298 }
-const HOOD_ALIASES = { 'Financial District': 'The Loop' }
+const HOOD_ALIASES = {
+  'Financial District': 'The Loop',
+  'Loop': 'The Loop',
+  'Rush Street': 'Gold Coast',
+  'West Loop Gate': 'West Loop',
+  'Near North Side': 'River North',
+}
 const aliasHood = (h) => (h ? (HOOD_ALIASES[h] || h) : h)
 
 function mapGoogleType(types = []) {
   if (types.some((t) => /bar|pub|night_club|brewery/.test(t))) return 'bar'
-  if (types.some((t) => /restaurant|cafe|meal|food|bakery/.test(t))) return 'restaurant'
+  if (types.some((t) => /coffee_shop|cafe/.test(t))) return 'coffee_shop'
+  if (types.some((t) => /restaurant|meal|food|bakery/.test(t))) return 'restaurant'
   if (types.some((t) => /lodging|hotel|motel|hostel/.test(t))) return 'hotel'
   if (types.some((t) => /theater|theatre|movie|performing_arts|cinema/.test(t))) return 'theater'
   return 'other'
@@ -58,7 +65,8 @@ async function google(q, key) {
 function nominatimType(res) {
   const t = (res.type || '') + (res.class || '')
   if (/pub|bar|nightclub/.test(t)) return 'bar'
-  if (/restaurant|cafe|food|fast_food/.test(t)) return 'restaurant'
+  if (/cafe|coffee/.test(t)) return 'coffee_shop'
+  if (/restaurant|food|fast_food/.test(t)) return 'restaurant'
   if (/hotel|hostel|motel|guest_house/.test(t)) return 'hotel'
   if (/theatre|theater|cinema/.test(t)) return 'theater'
   return 'other'
