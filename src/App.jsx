@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import { ensureUser } from './lib/supabase'
-import { resizeImage } from './lib/imageResize'
 import {
-  readMatchbooks, searchPlaces, uploadPhoto, insertPhoto,
+  loadFileToCanvas, canvasToBase64, cropNormalized, tileRects, isValidBbox, canvasToFile,
+} from './lib/vision'
+import {
+  readMatchbooksImage, searchPlaces, uploadPhoto, insertPhoto,
   upsertSpot, linkSpotPhoto, updateSpotType, loadSpots,
-  loadUserLists, setUserList,
+  loadUserLists, setUserList, norm,
 } from './lib/api'
 
 const CHI = [41.8781, -87.6298]
 const TYPES = ['bar', 'restaurant', 'hotel', 'theater', 'other']
-const LABEL_ZOOM = 14
 
 // A few Google/OSM neighborhood labels read oddly to locals — rename them for display.
 const HOOD_ALIASES = { 'Financial District': 'The Loop' }
@@ -27,13 +28,60 @@ function shortAddress(address, neighborhood) {
   return [street, hood].filter(Boolean).join(', ')
 }
 
+function mapsUrl(name, address) {
+  const q = [name, address, 'Chicago, IL'].filter(Boolean).join(' ')
+  return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q)
+}
+
+async function readWholeCanvas(canvas) {
+  const { base64, mediaType } = canvasToBase64(canvas)
+  const res = await readMatchbooksImage({ base64, mediaType })
+  return { items: res.items || [], unreadable: res.unreadable || 0 }
+}
+
+// Split a dense collage into four overlapping quadrants and read each separately —
+// much more legible per matchbook than asking the model to parse 20-30 tiny covers at once.
+async function readTiled(canvas, onProgress) {
+  const rects = tileRects(0.12)
+  const allItems = []
+  let unreadable = 0
+  for (let i = 0; i < rects.length; i++) {
+    onProgress?.(i + 1, rects.length)
+    const rect = rects[i]
+    const tile = cropNormalized(canvas, [rect.x, rect.y, rect.x + rect.w, rect.y + rect.h], 0)
+    const { base64, mediaType } = canvasToBase64(tile)
+    const res = await readMatchbooksImage({ base64, mediaType })
+    unreadable += res.unreadable || 0
+    for (const it of (res.items || [])) {
+      if (isValidBbox(it.bbox)) {
+        const [x0, y0, x1, y1] = it.bbox
+        allItems.push({
+          ...it,
+          bbox: [rect.x + x0 * rect.w, rect.y + y0 * rect.h, rect.x + x1 * rect.w, rect.y + y1 * rect.h],
+        })
+      } else {
+        allItems.push({ ...it, bbox: null })
+      }
+    }
+  }
+  // De-dupe items that show up in more than one overlapping tile, by normalized name.
+  const seen = new Set(), deduped = []
+  for (const it of allItems) {
+    const key = norm(it.name)
+    if (key && seen.has(key)) continue
+    if (key) seen.add(key)
+    deduped.push(it)
+  }
+  return { items: deduped, unreadable }
+}
+
 export default function App() {
   const [user, setUser] = useState(null)
   const [spots, setSpots] = useState([])
   const [lists, setLists] = useState({})
-  const [review, setReview] = useState([])       // proposed matches, not yet saved
-  const [pending, setPending] = useState([])      // couldn't place -> manual search
-  const [candidates, setCandidates] = useState({})// pendingId -> results | 'loading'
+  const [review, setReview] = useState([])        // proposed matches, not yet saved
+  const [pending, setPending] = useState([])       // couldn't place -> manual search
+  const [candidates, setCandidates] = useState({}) // pendingId -> results | 'loading'
   const [filters, setFilters] = useState({ view: 'all', type: 'all', hood: 'all' })
   const [status, setStatus] = useState('')
   const [staged, setStaged] = useState(null)
@@ -44,19 +92,23 @@ export default function App() {
   const mapRef = useRef(null)
   const layerRef = useRef(null)
   const timers = useRef({})
+  const baseZoomRef = useRef(12) // zoom level right after fitting to the current pins
 
   /* ----- boot ----- */
   useEffect(() => {
-    const map = L.map(mapEl.current, { scrollWheelZoom: false }).setView(CHI, 12)
-    // Clean, low-clutter basemap (CARTO Positron) instead of the busy default tiles
+    const map = L.map(mapEl.current, { scrollWheelZoom: false, zoomSnap: 1 }).setView(CHI, 12)
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       subdomains: 'abcd', maxZoom: 20, attribution: '© OpenStreetMap © CARTO',
     }).addTo(map)
     layerRef.current = L.layerGroup().addTo(map)
-    map.on('zoomend', () => {
-      map.getContainer().classList.toggle('labels-on', map.getZoom() >= LABEL_ZOOM)
-    })
+
+    const updateLabels = () => {
+      // Labels appear after exactly one zoom-in step past wherever we last fit the pins.
+      map.getContainer().classList.toggle('labels-on', map.getZoom() >= baseZoomRef.current + 1)
+    }
+    map.on('zoomend', updateLabels)
     mapRef.current = map
+    map._updateLabels = updateLabels
 
     window.__openSpot = (id) => { setModalId(id); setGIndex(0) }
     ;(async () => {
@@ -112,60 +164,79 @@ export default function App() {
       m.bindPopup(
         `<b>${esc(s.name)}</b><br>` +
         `<span class="pop-meta">${s.type}${s.status === 'closed' ? ' · closed' : ''}${meta ? '<br>' + esc(meta) : ''}</span><br>` +
-        `<button class="popbtn" onclick="window.__openSpot('${s.id}')">View photos (${s.photos.length})</button>`
+        `<button class="popbtn" onclick="window.__openSpot('${s.id}')">View photos (${s.photos.length})</button> ` +
+        `<a class="popbtn poplink" href="${mapsUrl(s.name, s.address)}" target="_blank" rel="noopener">Google Maps ↗</a>`
       )
-      // permanent label, shown only when zoomed in (gated by the .labels-on class via CSS)
       m.bindTooltip(s.name, { permanent: true, direction: 'top', offset: [0, -14], className: 'mb-label' })
       layer.addLayer(m); ms.push(m)
     })
-    map.getContainer().classList.toggle('labels-on', map.getZoom() >= LABEL_ZOOM)
-    if (ms.length) map.fitBounds(L.featureGroup(ms).getBounds().pad(0.25))
+    if (ms.length) {
+      map.fitBounds(L.featureGroup(ms).getBounds().pad(0.25), { animate: false })
+      baseZoomRef.current = map.getZoom()
+    }
+    map._updateLabels?.()
   }, [visible])
 
   /* ----- upload + read -> build a review list (nothing saved yet) ----- */
-  async function onFile(e) {
+  function onFile(e) {
     const f = e.target.files[0]
     if (!f) return
-    const resized = await resizeImage(f)
-    setStaged({ file: resized, url: URL.createObjectURL(resized) })
+    setStaged({ file: f, url: URL.createObjectURL(f) })
   }
 
   async function handleUpload() {
     if (!staged || !user) return
-    setStatus('Uploading photo…')
-    let photo
-    try {
-      const up = await uploadPhoto(staged.file, user.id)
-      photo = await insertPhoto({ path: up.path, publicUrl: up.publicUrl, userId: user.id })
-    } catch (e) { setStatus('Upload failed — check the storage bucket in the README.'); return }
 
     setStatus('Reading the covers…')
-    let items = [], unreadable = 0
+    let canvas, pass1
     try {
-      const res = await readMatchbooks(photo.public_url)
-      items = res.items || []; unreadable = res.unreadable || 0
+      canvas = await loadFileToCanvas(staged.file)
+      pass1 = await readWholeCanvas(canvas)
     } catch (e) { setStatus('Couldn’t read that photo — try a sharper, closer shot.'); return }
 
+    let items = pass1.items, unreadable = pass1.unreadable
+    const looksDense = pass1.unreadable >= 4 || pass1.items.length >= 8
+    if (looksDense) {
+      try {
+        const tiled = await readTiled(canvas, (i, n) => setStatus(`Dense photo — reading section ${i}/${n}…`))
+        const tiledNames = new Set(tiled.items.map((it) => norm(it.name)).filter(Boolean))
+        const keepFromPass1 = items.filter((it) => !tiledNames.has(norm(it.name)))
+        items = [...tiled.items, ...keepFromPass1]
+        unreadable = tiled.unreadable
+      } catch (e) {
+        // Tiled re-read failed — fall back to whatever pass 1 found rather than losing everything.
+      }
+    }
+    items = items.slice(0, 20)
+
     const drafts = [], newPending = []
-    for (let i = 0; i < items.length && i < 12; i++) {
+    for (let i = 0; i < items.length; i++) {
       const it = items[i]
-      setStatus(`Placing ${i + 1}/${Math.min(items.length, 12)}: ${it.name}`)
+      setStatus(`Placing ${i + 1}/${items.length}: ${it.name}`)
+      const cropFile = await canvasToFile(
+        isValidBbox(it.bbox) ? cropNormalized(canvas, it.bbox) : canvas,
+        'matchbook.jpg'
+      )
+      const previewUrl = URL.createObjectURL(cropFile)
+
       const query = it.address ? `${it.name} ${it.address}` : `${it.name}, Chicago`
       const cands = await searchPlaces(query)
       if (cands.length) {
         const c = cands[0]
         drafts.push({
-          tempId: crypto.randomUUID(), photoId: photo.id, photoUrl: photo.public_url,
+          tempId: crypto.randomUUID(), cropFile, previewUrl,
           name: it.name, type: it.type || c.type || 'other',
           address: c.address || it.address || '', neighborhood: c.neighborhood || it.neighborhood || '',
           lat: c.lat, lng: c.lng, status: it.status || 'unknown',
         })
       } else {
-        newPending.push({ id: crypto.randomUUID(), photoId: photo.id, photoUrl: photo.public_url, prefill: it.name || '' })
+        newPending.push({ id: crypto.randomUUID(), cropFile, previewUrl, prefill: it.name || '' })
       }
     }
-    for (let k = 0; k < unreadable; k++)
-      newPending.push({ id: crypto.randomUUID(), photoId: photo.id, photoUrl: photo.public_url, prefill: '' })
+    for (let k = 0; k < unreadable && (drafts.length + newPending.length) < 20; k++) {
+      const cropFile = await canvasToFile(canvas, 'matchbook.jpg')
+      newPending.push({ id: crypto.randomUUID(), cropFile, previewUrl: URL.createObjectURL(cropFile), prefill: '' })
+    }
 
     setReview((r) => [...drafts, ...r])
     setPending((p) => [...newPending, ...p])
@@ -181,7 +252,7 @@ export default function App() {
   function removeDraft(id) { setReview((r) => r.filter((d) => d.tempId !== id)) }
   function draftToPending(d) {
     const id = crypto.randomUUID()
-    setPending((p) => [{ id, photoId: d.photoId, photoUrl: d.photoUrl, prefill: d.name }, ...p])
+    setPending((p) => [{ id, cropFile: d.cropFile, previewUrl: d.previewUrl, prefill: d.name }, ...p])
     setReview((r) => r.filter((x) => x.tempId !== d.tempId))
     runSearch(id, d.name)
   }
@@ -189,11 +260,13 @@ export default function App() {
     if (!review.length) return
     setStatus('Saving…')
     for (const d of review) {
+      const up = await uploadPhoto(d.cropFile, user.id)
+      const photo = await insertPhoto({ path: up.path, publicUrl: up.publicUrl, userId: user.id })
       const spot = await upsertSpot({
         name: d.name, address: d.address, neighborhood: d.neighborhood,
         type: d.type, status: d.status, lat: d.lat, lng: d.lng, approx: false,
       })
-      await linkSpotPhoto(spot.id, d.photoId)
+      await linkSpotPhoto(spot.id, photo.id)
     }
     const n = review.length
     setReview([]); setStatus(`Saved ${n} spot${n === 1 ? '' : 's'}.`)
@@ -217,11 +290,13 @@ export default function App() {
     setCandidates((c) => { const n = { ...c }; delete n[id]; return n })
   }
   async function assign(pend, cand) {
+    const up = await uploadPhoto(pend.cropFile, user.id)
+    const photo = await insertPhoto({ path: up.path, publicUrl: up.publicUrl, userId: user.id })
     const spot = await upsertSpot({
       name: cand.name, address: cand.address, neighborhood: cand.neighborhood,
       type: cand.type || 'other', status: 'unknown', lat: cand.lat, lng: cand.lng, approx: false,
     })
-    await linkSpotPhoto(spot.id, pend.photoId)
+    await linkSpotPhoto(spot.id, photo.id)
     dismissPending(pend.id)
     await refresh(user.id)
   }
@@ -233,10 +308,6 @@ export default function App() {
     setLists((l) => ({ ...l, [spotId]: next }))
     if (user) await setUserList(user.id, spotId, { [key]: next[key] })
   }
-  async function changeType(spotId, type) {
-    setSpots((ss) => ss.map((s) => (s.id === spotId ? { ...s, type } : s)))
-    await updateSpotType(spotId, type)
-  }
 
   const modalSpot = enriched.find((s) => s.id === modalId) || null
 
@@ -247,7 +318,7 @@ export default function App() {
           <div className="match"><div className="stick" /><div className="head flame" /></div>
           <h1>Struck<span className="sub">Chicago matchbook map</span></h1>
         </div>
-        <p className="lede">Add a photo of a matchbook. It reads the covers, you review the matches, and each spot drops on the map. Can’t read one? Search and pin it yourself.</p>
+        <p className="lede">Add a photo of a matchbook. It reads the covers, you review the matches, and each spot drops on the map. Dense collages get split into sections and cropped automatically. Can’t read one? Search and pin it yourself.</p>
         <p className="who">{user ? 'Your wishlist and been-there are saved to this browser.' : 'Connecting…'}</p>
       </header>
 
@@ -273,7 +344,7 @@ export default function App() {
                   <div className="stage-h">Review {review.length} match{review.length === 1 ? '' : 'es'} · not saved yet</div>
                   {review.map((d) => (
                     <div className="draft" key={d.tempId}>
-                      <img className="thumb" src={d.photoUrl} alt="" />
+                      <img className="thumb" src={d.previewUrl} alt="" />
                       <div className="grow">
                         <input className="draft-name" value={d.name}
                           onChange={(e) => updateDraft(d.tempId, { name: e.target.value })} />
@@ -297,7 +368,7 @@ export default function App() {
 
               {pending.map((p) => (
                 <div className="assign" key={p.id}>
-                  <img src={p.photoUrl} alt="unplaced matchbook" />
+                  <img src={p.previewUrl} alt="unplaced matchbook" />
                   <div className="body">
                     <div className="assign-head">
                       <span className="lbl">Couldn’t place — search it</span>
@@ -351,8 +422,8 @@ export default function App() {
           {/* ---------- results ---------- */}
           {enriched.length > 0 && <div className="results-h">{visible.length} spot{visible.length === 1 ? '' : 's'}</div>}
           {visible.slice().sort((a, b) => a.name.localeCompare(b.name)).map((s) => (
-            <div className="spot" key={s.id} onClick={() => { setModalId(s.id); setGIndex(0) }}>
-              <div className="top">
+            <div className="spot" key={s.id}>
+              <div className="top" onClick={() => { setModalId(s.id); setGIndex(0) }}>
                 {s.photos[0]
                   ? <img className="thumb" src={s.photos[0].public_url} alt="" />
                   : <div className="thumb ph" />}
@@ -373,6 +444,8 @@ export default function App() {
                     onClick={(e) => { e.stopPropagation(); toggle(s.id, 'visited') }}>✓</button>
                 </div>
               </div>
+              <a className="gmlink" href={mapsUrl(s.name, s.address)} target="_blank" rel="noopener"
+                onClick={(e) => e.stopPropagation()}>Open in Google Maps ↗</a>
             </div>
           ))}
         </div>
@@ -381,7 +454,7 @@ export default function App() {
       </div>
 
       <footer>
-        Clean map by CARTO. Gold pins are on your wishlist; orange pins are approximate. Zoom in to see place names on the map.
+        Clean map by CARTO. Gold pins are on your wishlist; orange pins are approximate. Zoom in once to see place names on the map.
       </footer>
 
       {modalSpot && (
@@ -427,6 +500,9 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle }) {
             ✓ {spot.visited ? 'Been there' : 'Mark as been'}
           </button>
         </div>
+        <a className="gmlink modal-gmlink" href={mapsUrl(spot.name, spot.address)} target="_blank" rel="noopener">
+          Open in Google Maps ↗
+        </a>
       </div>
     </div>
   )
