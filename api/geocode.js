@@ -1,6 +1,8 @@
 // GET /api/geocode?q=...  ->  { results:[{name,address,neighborhood,type,lat,lng}] }
 // Uses Google Places Text Search when GOOGLE_PLACES_KEY is set (great for business names),
 // otherwise falls back to OpenStreetMap Nominatim (address-oriented, weaker on venues).
+// Hardened: never throws past its own boundary — always returns 200 with results:[] on failure,
+// and includes a "debug" field describing what went wrong so it's visible from the browser Network tab.
 
 const CHICAGO = { lat: 41.8781, lng: -87.6298 }
 
@@ -12,7 +14,7 @@ function mapGoogleType(types = []) {
   return 'other'
 }
 function hoodFromGoogle(components = []) {
-  const find = (type) => components.find((c) => (c.types || []).includes(type))?.longText
+  const find = (type) => (components || []).find((c) => (c?.types || []).includes(type))?.longText
   return find('neighborhood') || find('sublocality') || find('sublocality_level_1') || null
 }
 
@@ -31,17 +33,24 @@ async function google(q, key) {
       locationBias: { circle: { center: { latitude: CHICAGO.lat, longitude: CHICAGO.lng }, radius: 40000 } },
     }),
   })
-  const data = await r.json()
-  if (!r.ok) throw new Error(JSON.stringify(data))
-  return (data.places || []).map((p) => ({
-    name: p.displayName?.text || q,
-    // shortFormattedAddress is like "100 W Randolph St" — much cleaner than the full one
-    address: p.shortFormattedAddress || p.formattedAddress || null,
-    neighborhood: hoodFromGoogle(p.addressComponents),
-    type: mapGoogleType(p.types),
-    lat: p.location?.latitude,
-    lng: p.location?.longitude,
-  }))
+  const text = await r.text()
+  let data
+  try { data = JSON.parse(text) } catch { data = { raw: text } }
+  if (!r.ok) {
+    const msg = data?.error?.message || data?.raw || `HTTP ${r.status}`
+    const err = new Error('google_places: ' + msg)
+    err.status = r.status
+    throw err
+  }
+  const places = Array.isArray(data.places) ? data.places : []
+  return places.map((p) => ({
+    name: p?.displayName?.text || q,
+    address: p?.shortFormattedAddress || p?.formattedAddress || null,
+    neighborhood: hoodFromGoogle(p?.addressComponents),
+    type: mapGoogleType(p?.types),
+    lat: p?.location?.latitude,
+    lng: p?.location?.longitude,
+  })).filter((r) => typeof r.lat === 'number' && typeof r.lng === 'number')
 }
 
 function nominatimType(res) {
@@ -59,8 +68,8 @@ function nominatimShortAddress(res) {
   return parts.join(', ') || (res.display_name || '').split(',').slice(0, 2).join(',').trim()
 }
 function nominatimName(res, q) {
-  const n = res.namedetails?.name || (res.display_name || '').split(',')[0]
-  return (n || '').replace(/^[A-Z0-9]{2,6}-/, '').trim() || q  // strip stray leading codes
+  const n = res?.namedetails?.name || (res.display_name || '').split(',')[0]
+  return (n || '').replace(/^[A-Z0-9]{2,6}-/, '').trim() || q
 }
 
 async function nominatim(q) {
@@ -68,26 +77,39 @@ async function nominatim(q) {
     encodeURIComponent(q + ', Chicago, IL')
   const r = await fetch(url, { headers: { 'User-Agent': 'struck-matchbook-map' } })
   if (!r.ok) return []
-  const j = await r.json()
-  return (j || []).map((res) => ({
+  const j = await r.json().catch(() => [])
+  return (Array.isArray(j) ? j : []).map((res) => ({
     name: nominatimName(res, q),
     address: nominatimShortAddress(res),
     neighborhood: (res.address || {}).neighbourhood || (res.address || {}).suburb || (res.address || {}).city_district || null,
     type: nominatimType(res),
     lat: parseFloat(res.lat),
     lng: parseFloat(res.lon),
-  }))
+  })).filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng))
 }
 
 export default async function handler(req, res) {
   const q = (req.query?.q || '').toString().trim()
-  if (!q) return res.status(400).json({ error: 'q required' })
+  if (!q) return res.status(200).json({ results: [] })
+
   const key = process.env.GOOGLE_PLACES_KEY
+  const debug = []
+
+  if (key) {
+    try {
+      const results = await google(q, key)
+      return res.status(200).json({ results, provider: 'google' })
+    } catch (err) {
+      debug.push(String(err.message || err))
+    }
+  }
+
   try {
-    const results = key ? await google(q, key) : await nominatim(q)
-    return res.status(200).json({ results, provider: key ? 'google' : 'nominatim' })
+    const results = await nominatim(q)
+    return res.status(200).json({ results, provider: key ? 'nominatim-fallback' : 'nominatim', debug })
   } catch (err) {
-    try { return res.status(200).json({ results: await nominatim(q), provider: 'nominatim-fallback' }) }
-    catch { return res.status(500).json({ error: String(err) }) }
+    debug.push(String(err.message || err))
+    // Never 500 the client — an empty result is a much better failure mode than a crash.
+    return res.status(200).json({ results: [], provider: 'none', debug })
   }
 }
