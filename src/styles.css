@@ -159,3 +159,44 @@ footer{margin-top:26px;font-size:12.5px;color:#8a7c63;line-height:1.6}
 .leaflet-tooltip.mb-label{background:var(--ink);color:var(--stock);border:none;box-shadow:0 1px 5px rgba(0,0,0,.35);font-family:'Oswald';font-size:11px;letter-spacing:.03em;padding:2px 7px;border-radius:4px;display:none;white-space:nowrap}
 .leaflet-tooltip.mb-label::before{display:none}
 .labels-on .leaflet-tooltip.mb-label{display:block}
+
+/* ---------- v4 additions: auth, panel tabs, my submissions, leaderboard, admin edit, comments ---------- */
+
+.authbar{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.authbar input{flex:1;min-width:180px;font-family:'Spectral';font-size:13px;padding:7px 9px;border:1px solid var(--stock-dk);border-radius:6px;background:#fffdf7}
+.who{font-size:12.5px;color:#8a7c63;margin-top:8px}
+.who .linkbtn{font-size:12.5px}
+
+.panelTabs{display:flex;gap:6px;margin:16px 0 12px;border-top:1px solid var(--stock-dk);padding-top:14px}
+.ptab{flex:1;font-family:'Oswald';text-transform:uppercase;letter-spacing:.06em;font-size:10.5px;padding:8px 4px;border:1px solid var(--stock-dk);background:#fffdf7;border-radius:6px;cursor:pointer;color:#6b5d47}
+.ptab.on{background:var(--red);color:var(--stock);border-color:var(--red)}
+
+.mine{margin-top:6px}
+.subcard{display:flex;gap:10px;border-top:1px solid var(--stock-dk);padding:10px 2px}
+.subcard:first-child{border-top:none}
+.sub-row{cursor:pointer;padding:2px 0}
+.sub-row .nm{font-family:'Oswald';font-size:14px;color:var(--ink)}
+.sub-row .meta{display:block;font-size:12px;color:#6b5d47}
+
+.leaderboard{margin-top:6px}
+.lbrow{display:flex;align-items:center;gap:10px;border-top:1px solid var(--stock-dk);padding:10px 2px;cursor:pointer}
+.lbrow:first-child{border-top:none}
+.lbrank{font-family:'Oswald';font-weight:700;font-size:16px;color:var(--gold);width:20px;text-align:center;flex:0 0 auto}
+.lbcount{font-family:'Oswald';font-size:13px;color:var(--red);flex:0 0 auto}
+
+.admin-edit{display:block;margin-top:6px}
+.admin-form{padding-right:24px}
+.admin-form label{display:block;font-size:11px;font-family:'Oswald';letter-spacing:.06em;text-transform:uppercase;color:var(--sage);margin-top:8px}
+.admin-form input{width:100%;margin-top:3px;font-family:'Spectral';font-size:14px;padding:7px;border:1px solid var(--stock-dk);border-radius:6px}
+.admin-row{display:flex;gap:8px;align-items:flex-end;margin-top:10px;flex-wrap:wrap}
+.admin-row select{margin-top:3px}
+.ghost.danger{border-color:var(--red);color:var(--red)}
+
+.comments{padding:0 18px 20px;border-top:1px solid var(--stock-dk);margin-top:6px}
+.comments-h{font-family:'Oswald';text-transform:uppercase;letter-spacing:.1em;font-size:12px;color:var(--sage);margin:14px 0 2px}
+.comment-form{display:flex;gap:8px;margin:8px 0;align-items:flex-start}
+.comment-form textarea{flex:1;font-family:'Spectral';font-size:13px;padding:7px;border:1px solid var(--stock-dk);border-radius:6px;resize:vertical}
+.comment{border-top:1px solid var(--stock-dk);padding:8px 0}
+.comment:first-of-type{border-top:none}
+.comment-body{font-size:13.5px;color:#3a322a}
+.comment-meta{font-size:11px;color:#a1937a;margin-top:2px}
