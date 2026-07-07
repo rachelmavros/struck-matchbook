@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import { ensureUser } from './lib/supabase'
+import { resizeImage } from './lib/imageResize'
 import {
   readMatchbooks, searchPlaces, uploadPhoto, insertPhoto,
   upsertSpot, linkSpotPhoto, updateSpotType, loadSpots,
@@ -9,7 +10,22 @@ import {
 
 const CHI = [41.8781, -87.6298]
 const TYPES = ['bar', 'restaurant', 'hotel', 'theater', 'other']
-const LABEL_ZOOM = 15
+const LABEL_ZOOM = 14
+
+// A few Google/OSM neighborhood labels read oddly to locals — rename them for display.
+const HOOD_ALIASES = { 'Financial District': 'The Loop' }
+const hoodLabel = (h) => (h ? (HOOD_ALIASES[h] || h) : h)
+
+// Map popups / list rows want "226 W Kinzie St, River North" — not the full county+zip string.
+function shortAddress(address, neighborhood) {
+  if (!address) return hoodLabel(neighborhood) || ''
+  const parts = address.split(',').map((p) => p.trim()).filter(Boolean)
+  const DROP = /^(chicago|cook county|illinois|il|united states|usa|\d{5}(-\d{4})?)$/i
+  const kept = parts.filter((p) => !DROP.test(p))
+  const street = kept[0] || parts[0] || ''
+  const hood = hoodLabel(neighborhood) || kept.find((p) => p !== street) || ''
+  return [street, hood].filter(Boolean).join(', ')
+}
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -69,7 +85,7 @@ export default function App() {
   })), [spots, lists])
 
   const hoods = useMemo(
-    () => [...new Set(enriched.map((s) => s.neighborhood).filter(Boolean))].sort(),
+    () => [...new Set(enriched.map((s) => hoodLabel(s.neighborhood)).filter(Boolean))].sort(),
     [enriched]
   )
 
@@ -77,7 +93,7 @@ export default function App() {
     if (filters.view === 'wishlist' && !s.wishlist) return false
     if (filters.view === 'visited' && !s.visited) return false
     if (filters.type !== 'all' && s.type !== filters.type) return false
-    if (filters.hood !== 'all' && (s.neighborhood || '') !== filters.hood) return false
+    if (filters.hood !== 'all' && hoodLabel(s.neighborhood) !== filters.hood) return false
     return true
   }), [enriched, filters])
 
@@ -92,7 +108,7 @@ export default function App() {
       const cls = s.wishlist ? 'wish' : (s.approx ? 'approx' : '')
       const icon = L.divIcon({ className: '', html: `<div class="pin ${cls}"></div>`, iconSize: [16, 16], iconAnchor: [8, 16] })
       const m = L.marker([s.lat, s.lng], { icon })
-      const meta = [s.neighborhood, s.address].filter(Boolean).join(' · ')
+      const meta = shortAddress(s.address, s.neighborhood)
       m.bindPopup(
         `<b>${esc(s.name)}</b><br>` +
         `<span class="pop-meta">${s.type}${s.status === 'closed' ? ' · closed' : ''}${meta ? '<br>' + esc(meta) : ''}</span><br>` +
@@ -107,10 +123,11 @@ export default function App() {
   }, [visible])
 
   /* ----- upload + read -> build a review list (nothing saved yet) ----- */
-  function onFile(e) {
+  async function onFile(e) {
     const f = e.target.files[0]
     if (!f) return
-    setStaged({ file: f, url: URL.createObjectURL(f) })
+    const resized = await resizeImage(f)
+    setStaged({ file: resized, url: URL.createObjectURL(resized) })
   }
 
   async function handleUpload() {
@@ -237,7 +254,7 @@ export default function App() {
       <div className="strip" />
 
       <div className="cols">
-        <div className="panel">
+        <div className="panel panel-slot">
           <h2>Add matchbooks</h2>
           <label className={'drop' + (staged ? ' has' : '')}>
             <input type="file" accept="image/*" hidden onChange={onFile} />
@@ -345,7 +362,7 @@ export default function App() {
                     <span className={'tag ' + s.type}>{s.type}</span>
                     {s.status === 'closed' && <span className="tag closed">closed</span>}
                     {s.approx && <span className="tag approx">approx</span>}
-                    {s.neighborhood || s.address}
+                    {shortAddress(s.address, s.neighborhood)}
                   </div>
                   <div className="count">{s.photos.length} photo{s.photos.length === 1 ? '' : 's'}</div>
                 </div>
@@ -360,7 +377,7 @@ export default function App() {
           ))}
         </div>
 
-        <div id="map" ref={mapEl} />
+        <div id="map" className="map-slot" ref={mapEl} />
       </div>
 
       <footer>
@@ -369,16 +386,18 @@ export default function App() {
 
       {modalSpot && (
         <Modal spot={modalSpot} gIndex={gIndex} setGIndex={setGIndex}
-          onClose={() => setModalId(null)} onToggle={toggle} onType={changeType} />
+          onClose={() => setModalId(null)} onToggle={toggle} />
       )}
     </div>
   )
 }
 
-function Modal({ spot, gIndex, setGIndex, onClose, onToggle, onType }) {
+function Modal({ spot, gIndex, setGIndex, onClose, onToggle }) {
   const photos = spot.photos || []
-  const meta = [spot.neighborhood, spot.address].filter(Boolean).join(' · ')
+  const meta = shortAddress(spot.address, spot.neighborhood)
   const idx = photos.length ? ((gIndex % photos.length) + photos.length) % photos.length : 0
+  const [zoomed, setZoomed] = useState(false)
+  useEffect(() => { setZoomed(false) }, [idx, spot.id])
   return (
     <div className="overlay" onClick={(e) => { if (e.target.classList.contains('overlay')) onClose() }}>
       <div className="modal">
@@ -387,11 +406,12 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, onType }) {
           <div className="mname">{spot.name}</div>
           <div className="mmeta">{meta}{spot.status === 'closed' ? ' · closed' : ''}</div>
         </div>
-        <div className="gallery">
+        <div className={'gallery' + (zoomed ? ' zoomed' : '')}>
           {photos.length === 0
             ? <div className="gempty">No photos yet.</div>
             : <>
-                <img src={photos[idx].public_url} alt={spot.name} />
+                <img src={photos[idx].public_url} alt={spot.name}
+                  onClick={() => setZoomed((z) => !z)} title={zoomed ? 'Click to zoom out' : 'Click to zoom in'} />
                 {photos.length > 1 && <>
                   <button className="gnav prev" onClick={() => setGIndex(idx - 1)}>‹</button>
                   <button className="gnav next" onClick={() => setGIndex(idx + 1)}>›</button>
@@ -406,11 +426,6 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, onType }) {
           <button className={'mbtn' + (spot.visited ? ' on-check' : '')} onClick={() => onToggle(spot.id, 'visited')}>
             ✓ {spot.visited ? 'Been there' : 'Mark as been'}
           </button>
-        </div>
-        <div className="mtype">Type
-          <select value={spot.type} onChange={(e) => onType(spot.id, e.target.value)}>
-            {TYPES.map((t) => <option key={t} value={t}>{cap(t)}</option>)}
-          </select>
         </div>
       </div>
     </div>
