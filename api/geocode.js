@@ -5,6 +5,8 @@
 // and includes a "debug" field describing what went wrong so it's visible from the browser Network tab.
 
 const CHICAGO = { lat: 41.8781, lng: -87.6298 }
+const HOOD_ALIASES = { 'Financial District': 'The Loop' }
+const aliasHood = (h) => (h ? (HOOD_ALIASES[h] || h) : h)
 
 function mapGoogleType(types = []) {
   if (types.some((t) => /bar|pub|night_club|brewery/.test(t))) return 'bar'
@@ -46,7 +48,7 @@ async function google(q, key) {
   return places.map((p) => ({
     name: p?.displayName?.text || q,
     address: p?.shortFormattedAddress || p?.formattedAddress || null,
-    neighborhood: hoodFromGoogle(p?.addressComponents),
+    neighborhood: aliasHood(hoodFromGoogle(p?.addressComponents)),
     type: mapGoogleType(p?.types),
     lat: p?.location?.latitude,
     lng: p?.location?.longitude,
@@ -81,7 +83,7 @@ async function nominatim(q) {
   return (Array.isArray(j) ? j : []).map((res) => ({
     name: nominatimName(res, q),
     address: nominatimShortAddress(res),
-    neighborhood: (res.address || {}).neighbourhood || (res.address || {}).suburb || (res.address || {}).city_district || null,
+    neighborhood: aliasHood((res.address || {}).neighbourhood || (res.address || {}).suburb || (res.address || {}).city_district || null),
     type: nominatimType(res),
     lat: parseFloat(res.lat),
     lng: parseFloat(res.lon),
