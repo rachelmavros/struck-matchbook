@@ -72,8 +72,21 @@ export async function linkSpotPhoto(spotId, photoId) {
   if (error) throw error
 }
 
-export async function updateSpotType(spotId, type) {
-  await supabase.from('spots').update({ type }).eq('id', spotId)
+// Admin-only in practice: RLS on the "spots" table now requires profiles.is_admin = true for
+// updates/deletes, so these will silently no-op (or error) for non-admins even if called.
+export async function adminUpdateSpot(spotId, patch) {
+  const row = {}
+  for (const k of ['name', 'address', 'neighborhood', 'type', 'status']) {
+    if (patch[k] !== undefined) row[k] = patch[k]
+  }
+  if (row.name) row.name_key = norm(row.name)
+  const { data, error } = await supabase.from('spots').update(row).eq('id', spotId).select().single()
+  if (error) throw error
+  return data
+}
+export async function adminDeleteSpot(spotId) {
+  const { error } = await supabase.from('spots').delete().eq('id', spotId)
+  if (error) throw error
 }
 
 // Load every spot with its linked photo URLs.
@@ -85,6 +98,52 @@ export async function loadSpots() {
   return (data || []).map((s) => ({
     ...s,
     photos: (s.spot_photos || []).map((sp) => sp.photos).filter(Boolean),
+  }))
+}
+
+/* ---------- favorite / visit counts (public aggregate, no per-user identity) ---------- */
+
+export async function loadFavoriteCounts() {
+  const { data, error } = await supabase.from('spot_favorite_counts').select('spot_id,favorites,visits')
+  if (error) { console.warn(error.message); return {} }
+  const map = {}
+  for (const r of data || []) map[r.spot_id] = { favorites: r.favorites || 0, visits: r.visits || 0 }
+  return map
+}
+
+/* ---------- comments ---------- */
+
+export async function loadComments(spotId) {
+  const { data, error } = await supabase
+    .from('spot_comments').select('id,body,created_at,user_id').eq('spot_id', spotId)
+    .order('created_at', { ascending: false })
+  if (error) { console.warn(error.message); return [] }
+  return data || []
+}
+export async function addComment(spotId, userId, body) {
+  const { data, error } = await supabase
+    .from('spot_comments').insert({ spot_id: spotId, user_id: userId, body }).select().single()
+  if (error) throw error
+  return data
+}
+export async function deleteComment(commentId) {
+  const { error } = await supabase.from('spot_comments').delete().eq('id', commentId)
+  if (error) throw error
+}
+
+/* ---------- "my submissions": photos I uploaded, with the spot(s) they're linked to ---------- */
+
+export async function loadMySubmissions(userId) {
+  if (!userId) return []
+  const { data, error } = await supabase
+    .from('photos')
+    .select('id,public_url,created_at,spot_photos(spots(id,name,type,neighborhood))')
+    .eq('uploaded_by', userId)
+    .order('created_at', { ascending: false })
+  if (error) { console.warn(error.message); return [] }
+  return (data || []).map((p) => ({
+    photoId: p.id, publicUrl: p.public_url, createdAt: p.created_at,
+    spots: (p.spot_photos || []).map((sp) => sp.spots).filter(Boolean),
   }))
 }
 

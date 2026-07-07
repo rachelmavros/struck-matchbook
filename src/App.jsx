@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
-import { ensureUser } from './lib/supabase'
+import { ensureUser, ensureProfile, sendMagicLink, signOut } from './lib/supabase'
 import {
   loadFileToCanvas, canvasToBase64, cropNormalized, tileRects, isValidBbox, canvasToFile,
 } from './lib/vision'
 import {
   readMatchbooksImage, searchPlaces, uploadPhoto, insertPhoto,
-  upsertSpot, linkSpotPhoto, updateSpotType, loadSpots,
-  loadUserLists, setUserList, norm,
+  upsertSpot, linkSpotPhoto, adminUpdateSpot, adminDeleteSpot, loadSpots,
+  loadUserLists, setUserList, loadFavoriteCounts, loadComments, addComment, deleteComment,
+  loadMySubmissions, norm,
 } from './lib/api'
 
 const CHI = [41.8781, -87.6298]
@@ -85,8 +86,14 @@ async function readTiled(canvas, onProgress) {
 
 export default function App() {
   const [user, setUser] = useState(null)
+  const [profile, setProfile] = useState(null) // { id, email, is_admin }
+  const [authEmail, setAuthEmail] = useState('')
+  const [authStatus, setAuthStatus] = useState('')
   const [spots, setSpots] = useState([])
   const [lists, setLists] = useState({})
+  const [favCounts, setFavCounts] = useState({}) // spotId -> { favorites, visits }
+  const [panelView, setPanelView] = useState('list') // 'list' | 'mine' | 'leaderboard'
+  const [mySubs, setMySubs] = useState([])
   const [review, setReview] = useState([])        // proposed matches, not yet saved
   const [pending, setPending] = useState([])       // couldn't place -> manual search
   const [candidates, setCandidates] = useState({}) // pendingId -> results | 'loading'
@@ -125,6 +132,7 @@ export default function App() {
     ;(async () => {
       const u = await ensureUser()
       setUser(u)
+      if (u) setProfile(await ensureProfile(u))
       await refresh(u?.id)
     })()
     return () => { map.remove() }
@@ -133,19 +141,43 @@ export default function App() {
 
   async function refresh(userId) {
     try {
-      const [sp, ul] = await Promise.all([loadSpots(), loadUserLists(userId)])
-      setSpots(sp); setLists(ul)
+      const [sp, ul, fc] = await Promise.all([loadSpots(), loadUserLists(userId), loadFavoriteCounts()])
+      setSpots(sp); setLists(ul); setFavCounts(fc)
     } catch (e) {
       console.warn(e)
       setStatus('Could not load the map yet — check the Supabase setup in the README.')
     }
   }
 
+  async function handleSendMagicLink() {
+    if (!authEmail.trim()) return
+    setAuthStatus('Sending…')
+    try { await sendMagicLink(authEmail.trim()); setAuthStatus('Check your email for a sign-in link.') }
+    catch (e) { setAuthStatus('Could not send that — check the address and try again.') }
+  }
+  async function handleSignOut() {
+    await signOut()
+    setProfile(null)
+    const u = await ensureUser() // drops back to a fresh anonymous session
+    setUser(u)
+    await refresh(u?.id)
+  }
+
   const enriched = useMemo(() => spots.map((s) => ({
     ...s,
     wishlist: lists[s.id]?.wishlist || false,
     visited: lists[s.id]?.visited || false,
-  })), [spots, lists])
+    favorites: favCounts[s.id]?.favorites || 0,
+  })), [spots, lists, favCounts])
+
+  useEffect(() => {
+    if (panelView === 'mine' && user) loadMySubmissions(user.id).then(setMySubs)
+  }, [panelView, user])
+
+  const leaderboard = useMemo(
+    () => enriched.filter((s) => s.favorites > 0).slice().sort((a, b) => b.favorites - a.favorites).slice(0, 15),
+    [enriched]
+  )
 
   const hoods = useMemo(
     () => [...new Set(enriched.map((s) => hoodLabel(s.neighborhood)).filter(Boolean))].sort(),
@@ -333,7 +365,8 @@ export default function App() {
           <h1>Struck<span className="sub">Chicago matchbook map</span></h1>
         </div>
         <p className="lede">Add a photo of a matchbook. It reads the covers, you review the matches, and each spot drops on the map. Dense collages get split into sections and cropped automatically. Can’t read one? Search and pin it yourself.</p>
-        <p className="who">{user ? 'Your wishlist and been-there are saved to this browser.' : 'Connecting…'}</p>
+        <AuthBar profile={profile} authEmail={authEmail} setAuthEmail={setAuthEmail}
+          authStatus={authStatus} onSend={handleSendMagicLink} onSignOut={handleSignOut} />
       </header>
 
       <div className="strip" />
@@ -407,7 +440,15 @@ export default function App() {
             </div>
           )}
 
-          {/* ---------- filters ---------- */}
+          {/* ---------- panel view tabs ---------- */}
+          <div className="panelTabs">
+            <button className={'ptab' + (panelView === 'list' ? ' on' : '')} onClick={() => setPanelView('list')}>Map List</button>
+            <button className={'ptab' + (panelView === 'mine' ? ' on' : '')} onClick={() => setPanelView('mine')}>My Submissions</button>
+            <button className={'ptab' + (panelView === 'leaderboard' ? ' on' : '')} onClick={() => setPanelView('leaderboard')}>♥ Leaderboard</button>
+          </div>
+
+          {/* ---------- filters (list view only) ---------- */}
+          {panelView === 'list' && (
           <div className="filters">
             <div className="viewtabs">
               {['all', 'wishlist', 'visited'].map((v) => (
@@ -432,8 +473,10 @@ export default function App() {
               </label>
             </div>
           </div>
+          )}
 
-          {/* ---------- results ---------- */}
+          {/* ---------- results: list / mine / leaderboard ---------- */}
+          {panelView === 'list' && <>
           {enriched.length > 0 && <div className="results-h">{visible.length} spot{visible.length === 1 ? '' : 's'}</div>}
           {visible.slice().sort((a, b) => a.name.localeCompare(b.name)).map((s) => (
             <div className="spot" key={s.id}>
@@ -449,7 +492,7 @@ export default function App() {
                     {s.approx && <span className="tag approx">approx</span>}
                     {shortAddress(s.address, s.neighborhood)}
                   </div>
-                  <div className="count">{s.photos.length} photo{s.photos.length === 1 ? '' : 's'}</div>
+                  <div className="count">{s.photos.length} photo{s.photos.length === 1 ? '' : 's'}{s.favorites > 0 ? ` · ♥ ${s.favorites}` : ''}</div>
                 </div>
                 <div className="acts">
                   <button className={'iact' + (s.wishlist ? ' on-heart' : '')}
@@ -462,6 +505,48 @@ export default function App() {
                 onClick={(e) => e.stopPropagation()}>Open in Google Maps ↗</a>
             </div>
           ))}
+          </>}
+
+          {panelView === 'mine' && (
+            <div className="mine">
+              {!user ? <div className="hint-sm">Connecting…</div>
+                : mySubs.length === 0 ? <div className="hint-sm">Nothing uploaded yet from this account.</div>
+                : mySubs.map((sub) => (
+                  <div className="subcard" key={sub.photoId}>
+                    <img className="thumb" src={sub.publicUrl} alt="" />
+                    <div className="grow">
+                      {sub.spots.length === 0
+                        ? <div className="nm">Not linked to a spot</div>
+                        : sub.spots.map((sp) => (
+                          <div key={sp.id} className="sub-row" onClick={() => { setModalId(sp.id); setGIndex(0) }}>
+                            <span className="nm">{sp.name}</span>
+                            <span className="meta">{typeLabel(sp.type)} · {hoodLabel(sp.neighborhood)}
+                              {favCounts[sp.id]?.favorites ? ` · ♥ ${favCounts[sp.id].favorites}` : ''}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+
+          {panelView === 'leaderboard' && (
+            <div className="leaderboard">
+              {leaderboard.length === 0
+                ? <div className="hint-sm">No favorites yet — heart a few spots to get this started.</div>
+                : leaderboard.map((s, i) => (
+                  <div className="lbrow" key={s.id} onClick={() => { setModalId(s.id); setGIndex(0) }}>
+                    <span className="lbrank">{i + 1}</span>
+                    {s.photos[0] ? <img className="thumb" src={s.photos[0].public_url} alt="" /> : <div className="thumb ph" />}
+                    <div className="grow">
+                      <div className="nm">{s.name}</div>
+                      <div className="meta"><span className={'tag ' + s.type}>{typeLabel(s.type)}</span>{hoodLabel(s.neighborhood)}</div>
+                    </div>
+                    <span className="lbcount">♥ {s.favorites}</span>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
 
         <div id="map" className="map-slot" ref={mapEl} />
@@ -473,25 +558,83 @@ export default function App() {
 
       {modalSpot && (
         <Modal spot={modalSpot} gIndex={gIndex} setGIndex={setGIndex}
-          onClose={() => setModalId(null)} onToggle={toggle} />
+          onClose={() => setModalId(null)} onToggle={toggle}
+          user={user} isAdmin={!!profile?.is_admin}
+          onAdminSave={async (patch) => { await adminUpdateSpot(modalSpot.id, patch); await refresh(user?.id) }}
+          onAdminDelete={async () => { await adminDeleteSpot(modalSpot.id); setModalId(null); await refresh(user?.id) }}
+        />
       )}
     </div>
   )
 }
 
-function Modal({ spot, gIndex, setGIndex, onClose, onToggle }) {
+function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin, onAdminSave, onAdminDelete }) {
   const photos = spot.photos || []
   const meta = shortAddress(spot.address, spot.neighborhood)
   const idx = photos.length ? ((gIndex % photos.length) + photos.length) % photos.length : 0
   const [zoomed, setZoomed] = useState(false)
   useEffect(() => { setZoomed(false) }, [idx, spot.id])
+
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(null)
+  useEffect(() => { setEditing(false); setDraft(null) }, [spot.id])
+  function startEdit() {
+    setDraft({ name: spot.name, address: spot.address || '', neighborhood: spot.neighborhood || '', type: spot.type, status: spot.status || 'unknown' })
+    setEditing(true)
+  }
+  async function saveEdit() { await onAdminSave(draft); setEditing(false) }
+
+  const [comments, setComments] = useState([])
+  const [commentText, setCommentText] = useState('')
+  const [commentBusy, setCommentBusy] = useState(false)
+  useEffect(() => { loadComments(spot.id).then(setComments) }, [spot.id])
+  async function submitComment() {
+    if (!commentText.trim() || !user) return
+    setCommentBusy(true)
+    try {
+      const row = await addComment(spot.id, user.id, commentText.trim())
+      setComments((c) => [row, ...c])
+      setCommentText('')
+    } finally { setCommentBusy(false) }
+  }
+
   return (
     <div className="overlay" onClick={(e) => { if (e.target.classList.contains('overlay')) onClose() }}>
       <div className="modal">
         <div className="mhead">
           <button className="mclose" onClick={onClose}>×</button>
-          <div className="mname">{spot.name}</div>
-          <div className="mmeta">{meta}{spot.status === 'closed' ? ' · closed' : ''}</div>
+          {!editing ? (
+            <>
+              <div className="mname">{spot.name}</div>
+              <div className="mmeta">{meta}{spot.status === 'closed' ? ' · closed' : ''}{spot.favorites ? ` · ♥ ${spot.favorites}` : ''}</div>
+              {isAdmin && <button className="linkbtn admin-edit" onClick={startEdit}>Edit details</button>}
+            </>
+          ) : (
+            <div className="admin-form">
+              <label>Name<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+              <label>Address<input value={draft.address} onChange={(e) => setDraft({ ...draft, address: e.target.value })} /></label>
+              <label>Neighborhood<input value={draft.neighborhood} onChange={(e) => setDraft({ ...draft, neighborhood: e.target.value })} /></label>
+              <div className="admin-row">
+                <label>Type
+                  <select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })}>
+                    {TYPES.map((t) => <option key={t} value={t}>{typeLabel(t)}</option>)}
+                  </select>
+                </label>
+                <label>Status
+                  <select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}>
+                    <option value="unknown">Unknown</option>
+                    <option value="open">Open</option>
+                    <option value="closed">Closed</option>
+                  </select>
+                </label>
+              </div>
+              <div className="admin-row">
+                <button className="go save" onClick={saveEdit}>Save changes</button>
+                <button className="ghost" onClick={() => setEditing(false)}>Cancel</button>
+                <button className="ghost danger" onClick={() => { if (confirm('Delete this spot entirely? This can’t be undone.')) onAdminDelete() }}>Delete spot</button>
+              </div>
+            </div>
+          )}
         </div>
         <div className={'gallery' + (zoomed ? ' zoomed' : '')}>
           {photos.length === 0
@@ -517,7 +660,46 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle }) {
         <a className="gmlink modal-gmlink" href={mapsUrl(spot.name, spot.address)} target="_blank" rel="noopener">
           Open in Google Maps ↗
         </a>
+
+        <div className="comments">
+          <div className="comments-h">Notes &amp; updates</div>
+          <p className="hint-sm">Seen this place close, or stop carrying matchbooks? Say so here.</p>
+          {user && (
+            <div className="comment-form">
+              <textarea rows={2} value={commentText} placeholder="Add a note…"
+                onChange={(e) => setCommentText(e.target.value)} />
+              <button className="go save" disabled={commentBusy || !commentText.trim()} onClick={submitComment}>Post</button>
+            </div>
+          )}
+          {comments.length === 0
+            ? <div className="hint-sm">No notes yet.</div>
+            : comments.map((c) => (
+              <div className="comment" key={c.id}>
+                <div className="comment-body">{c.body}</div>
+                <div className="comment-meta">{new Date(c.created_at).toLocaleDateString()}</div>
+              </div>
+            ))}
+        </div>
       </div>
+    </div>
+  )
+}
+
+function AuthBar({ profile, authEmail, setAuthEmail, authStatus, onSend, onSignOut }) {
+  if (profile?.email) {
+    return (
+      <p className="who">
+        Signed in as {profile.email}{profile.is_admin ? ' · Admin' : ''} · <button className="linkbtn" onClick={onSignOut}>Sign out</button>
+      </p>
+    )
+  }
+  return (
+    <div className="authbar">
+      <input type="email" placeholder="Sign in with email to track your own submissions"
+        value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') onSend() }} />
+      <button className="linkbtn" onClick={onSend}>Send link</button>
+      {authStatus && <span className="hint-sm">{authStatus}</span>}
     </div>
   )
 }
