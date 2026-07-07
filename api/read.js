@@ -5,8 +5,8 @@ const MODEL = process.env.MATCHBOOK_MODEL || 'claude-sonnet-5'
 
 const PROMPT = `Photo of one or more Chicago matchbooks/matchboxes. Read each legible one.
 Return ONLY JSON, no prose, no code fences:
-{"items":[{"name":string,"address":string|null,"neighborhood":string|null,"type":"bar"|"restaurant"|"other","status":"open"|"closed"|"unknown"}],"unreadable":number}
-Prefer any street address or phone actually printed on the box. "unreadable" = number of matchbooks visible but whose name you cannot read. If none are readable, use items:[].`
+{"items":[{"name":string,"address":string|null,"neighborhood":string|null,"type":"bar"|"restaurant"|"hotel"|"theater"|"other","status":"open"|"closed"|"unknown"}],"unreadable":number}
+Prefer any street address or phone actually printed on the box. "type" is the kind of venue. "unreadable" = number of matchbooks visible but whose name you cannot read. If none are readable, use items:[].`
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
