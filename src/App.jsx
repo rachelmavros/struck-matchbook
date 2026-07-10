@@ -92,7 +92,7 @@ export default function App() {
   const [spots, setSpots] = useState([])
   const [lists, setLists] = useState({})
   const [favCounts, setFavCounts] = useState({}) // spotId -> { favorites, visits }
-  const [panelView, setPanelView] = useState('list') // 'list' | 'mine' | 'leaderboard'
+  const [accountOpen, setAccountOpen] = useState(false)
   const [mySubs, setMySubs] = useState([])
   const [review, setReview] = useState([])        // proposed matches, not yet saved
   const [pending, setPending] = useState([])       // couldn't place -> manual search
@@ -171,13 +171,8 @@ export default function App() {
   })), [spots, lists, favCounts])
 
   useEffect(() => {
-    if (panelView === 'mine' && user) loadMySubmissions(user.id).then(setMySubs)
-  }, [panelView, user])
-
-  const leaderboard = useMemo(
-    () => enriched.filter((s) => s.favorites > 0).slice().sort((a, b) => b.favorites - a.favorites).slice(0, 15),
-    [enriched]
-  )
+    if (accountOpen && user) loadMySubmissions(user.id).then(setMySubs)
+  }, [accountOpen, user])
 
   const hoods = useMemo(
     () => [...new Set(enriched.map((s) => hoodLabel(s.neighborhood)).filter(Boolean))].sort(),
@@ -360,13 +355,14 @@ export default function App() {
   return (
     <div className="wrap">
       <header>
-        <div className="brandrow">
-          <div className="match"><div className="stick" /><div className="head flame" /></div>
-          <h1>Struck<span className="sub">Chicago matchbook map</span></h1>
+        <div className="headtop">
+          <div className="brandrow">
+            <div className="match"><div className="stick" /><div className="head flame" /></div>
+            <h1>Struck<span className="sub">Chicago matchbook map</span></h1>
+          </div>
+          <HeaderAccount profile={profile} onOpen={() => setAccountOpen(true)} onSignOut={handleSignOut} />
         </div>
         <p className="lede">Add a photo of a matchbook. It reads the covers, you review the matches, and each spot drops on the map. Dense collages get split into sections and cropped automatically. Can’t read one? Search and pin it yourself.</p>
-        <AuthBar profile={profile} authEmail={authEmail} setAuthEmail={setAuthEmail}
-          authStatus={authStatus} onSend={handleSendMagicLink} onSignOut={handleSignOut} />
       </header>
 
       <div className="strip" />
@@ -440,15 +436,7 @@ export default function App() {
             </div>
           )}
 
-          {/* ---------- panel view tabs ---------- */}
-          <div className="panelTabs">
-            <button className={'ptab' + (panelView === 'list' ? ' on' : '')} onClick={() => setPanelView('list')}>Map List</button>
-            <button className={'ptab' + (panelView === 'mine' ? ' on' : '')} onClick={() => setPanelView('mine')}>My Submissions</button>
-            <button className={'ptab' + (panelView === 'leaderboard' ? ' on' : '')} onClick={() => setPanelView('leaderboard')}>♥ Leaderboard</button>
-          </div>
-
-          {/* ---------- filters (list view only) ---------- */}
-          {panelView === 'list' && (
+          {/* ---------- filters ---------- */}
           <div className="filters">
             <div className="viewtabs">
               {['all', 'wishlist', 'visited'].map((v) => (
@@ -473,10 +461,8 @@ export default function App() {
               </label>
             </div>
           </div>
-          )}
 
-          {/* ---------- results: list / mine / leaderboard ---------- */}
-          {panelView === 'list' && <>
+          {/* ---------- results: map list ---------- */}
           {enriched.length > 0 && <div className="results-h">{visible.length} spot{visible.length === 1 ? '' : 's'}</div>}
           {visible.slice().sort((a, b) => a.name.localeCompare(b.name)).map((s) => (
             <div className="spot" key={s.id}>
@@ -505,48 +491,6 @@ export default function App() {
                 onClick={(e) => e.stopPropagation()}>Open in Google Maps ↗</a>
             </div>
           ))}
-          </>}
-
-          {panelView === 'mine' && (
-            <div className="mine">
-              {!user ? <div className="hint-sm">Connecting…</div>
-                : mySubs.length === 0 ? <div className="hint-sm">Nothing uploaded yet from this account.</div>
-                : mySubs.map((sub) => (
-                  <div className="subcard" key={sub.photoId}>
-                    <img className="thumb" src={sub.publicUrl} alt="" />
-                    <div className="grow">
-                      {sub.spots.length === 0
-                        ? <div className="nm">Not linked to a spot</div>
-                        : sub.spots.map((sp) => (
-                          <div key={sp.id} className="sub-row" onClick={() => { setModalId(sp.id); setGIndex(0) }}>
-                            <span className="nm">{sp.name}</span>
-                            <span className="meta">{typeLabel(sp.type)} · {hoodLabel(sp.neighborhood)}
-                              {favCounts[sp.id]?.favorites ? ` · ♥ ${favCounts[sp.id].favorites}` : ''}</span>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                ))}
-            </div>
-          )}
-
-          {panelView === 'leaderboard' && (
-            <div className="leaderboard">
-              {leaderboard.length === 0
-                ? <div className="hint-sm">No favorites yet — heart a few spots to get this started.</div>
-                : leaderboard.map((s, i) => (
-                  <div className="lbrow" key={s.id} onClick={() => { setModalId(s.id); setGIndex(0) }}>
-                    <span className="lbrank">{i + 1}</span>
-                    {s.photos[0] ? <img className="thumb" src={s.photos[0].public_url} alt="" /> : <div className="thumb ph" />}
-                    <div className="grow">
-                      <div className="nm">{s.name}</div>
-                      <div className="meta"><span className={'tag ' + s.type}>{typeLabel(s.type)}</span>{hoodLabel(s.neighborhood)}</div>
-                    </div>
-                    <span className="lbcount">♥ {s.favorites}</span>
-                  </div>
-                ))}
-            </div>
-          )}
         </div>
 
         <div id="map" className="map-slot" ref={mapEl} />
@@ -555,6 +499,18 @@ export default function App() {
       <footer>
         Clean map by CARTO. Gold pins are on your wishlist; orange pins are approximate. Zoom in once to see place names on the map.
       </footer>
+
+      {accountOpen && (
+        <AccountModal
+          profile={profile} user={user}
+          authEmail={authEmail} setAuthEmail={setAuthEmail} authStatus={authStatus}
+          onSend={handleSendMagicLink} onSignOut={handleSignOut}
+          onClose={() => setAccountOpen(false)}
+          mySubs={mySubs} enriched={enriched} favCounts={favCounts}
+          onToggle={toggle}
+          onOpenSpot={(id) => { setAccountOpen(false); setModalId(id); setGIndex(0) }}
+        />
+      )}
 
       {modalSpot && (
         <Modal spot={modalSpot} gIndex={gIndex} setGIndex={setGIndex}
@@ -685,21 +641,127 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin, onAd
   )
 }
 
-function AuthBar({ profile, authEmail, setAuthEmail, authStatus, onSend, onSignOut }) {
+// Compact account control in the header: a "Sign in" button when signed out, or a small
+// "Signed in as …" line (clickable → My Account) with a sign-out link once signed in.
+function HeaderAccount({ profile, onOpen, onSignOut }) {
   if (profile?.email) {
     return (
-      <p className="who">
-        Signed in as {profile.email}{profile.is_admin ? ' · Admin' : ''} · <button className="linkbtn" onClick={onSignOut}>Sign out</button>
-      </p>
+      <div className="acct">
+        <button className="acct-who" onClick={onOpen} title="My Account">
+          Signed in as {profile.email}{profile.is_admin ? ' · Admin' : ''}
+        </button>
+        <button className="linkbtn" onClick={onSignOut}>Sign out</button>
+      </div>
     )
   }
   return (
-    <div className="authbar">
-      <input type="email" placeholder="Sign in with email to track your own submissions"
-        value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') onSend() }} />
-      <button className="linkbtn" onClick={onSend}>Send link</button>
-      {authStatus && <span className="hint-sm">{authStatus}</span>}
+    <div className="acct">
+      <button className="acct-btn" onClick={onOpen}>Sign in</button>
+    </div>
+  )
+}
+
+// Compact row for a spot inside the account modal's Wishlist / Been tabs.
+function AcctSpotRow({ s, favCounts, onToggle, onOpenSpot }) {
+  return (
+    <div className="acct-spot">
+      <div className="top" onClick={() => onOpenSpot(s.id)}>
+        {s.photos[0] ? <img className="thumb" src={s.photos[0].public_url} alt="" /> : <div className="thumb ph" />}
+        <div className="grow">
+          <div className="nm">{s.name}</div>
+          <div className="meta">
+            <span className={'tag ' + s.type}>{typeLabel(s.type)}</span>
+            {[hoodLabel(s.neighborhood)].filter(Boolean)}
+            {favCounts[s.id]?.favorites ? ` · ♥ ${favCounts[s.id].favorites}` : ''}
+          </div>
+        </div>
+        <div className="acts">
+          <button className={'iact' + (s.wishlist ? ' on-heart' : '')}
+            onClick={(e) => { e.stopPropagation(); onToggle(s.id, 'wishlist') }}>♥</button>
+          <button className={'iact' + (s.visited ? ' on-check' : '')}
+            onClick={(e) => { e.stopPropagation(); onToggle(s.id, 'visited') }}>✓</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// "My Account" modal: sign-in form when signed out, else tabs for the user's own
+// submissions, wishlist, and been-there lists.
+function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus, onSend, onSignOut,
+  onClose, mySubs, enriched, favCounts, onToggle, onOpenSpot }) {
+  const [tab, setTab] = useState('subs') // 'subs' | 'wishlist' | 'visited'
+  const signedIn = !!profile?.email
+
+  const wishlist = useMemo(() => enriched.filter((s) => s.wishlist), [enriched])
+  const visited = useMemo(() => enriched.filter((s) => s.visited), [enriched])
+
+  return (
+    <div className="overlay" onClick={(e) => { if (e.target.classList.contains('overlay')) onClose() }}>
+      <div className="modal acct-modal">
+        <div className="mhead">
+          <button className="mclose" onClick={onClose}>×</button>
+          {!signedIn ? (
+            <>
+              <div className="mname">Sign in</div>
+              <div className="mmeta">Track your submissions, wishlist, and been-there list.</div>
+            </>
+          ) : (
+            <>
+              <div className="mname">My Account</div>
+              <div className="mmeta">Signed in as {profile.email}{profile.is_admin ? ' · Admin' : ''} · <button className="linkbtn" onClick={onSignOut}>Sign out</button></div>
+            </>
+          )}
+        </div>
+
+        {!signedIn ? (
+          <div className="acct-body">
+            <input className="acct-input" type="email" placeholder="you@email.com"
+              value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') onSend() }} />
+            <button className="go" onClick={onSend}>Send sign-in link</button>
+            {authStatus && <div className="hint-sm">{authStatus}</div>}
+          </div>
+        ) : (
+          <>
+            <div className="acct-tabs">
+              <button className={'atab' + (tab === 'subs' ? ' on' : '')} onClick={() => setTab('subs')}>My Submissions</button>
+              <button className={'atab' + (tab === 'wishlist' ? ' on' : '')} onClick={() => setTab('wishlist')}>♥ Wishlist</button>
+              <button className={'atab' + (tab === 'visited' ? ' on' : '')} onClick={() => setTab('visited')}>✓ Been</button>
+            </div>
+            <div className="acct-body">
+              {tab === 'subs' && (
+                !user ? <div className="hint-sm">Connecting…</div>
+                  : mySubs.length === 0 ? <div className="hint-sm">Nothing uploaded yet from this account.</div>
+                  : mySubs.map((sub) => (
+                    <div className="subcard" key={sub.photoId}>
+                      <img className="thumb" src={sub.publicUrl} alt="" />
+                      <div className="grow">
+                        {sub.spots.length === 0
+                          ? <div className="nm">Not linked to a spot</div>
+                          : sub.spots.map((sp) => (
+                            <div key={sp.id} className="sub-row" onClick={() => onOpenSpot(sp.id)}>
+                              <span className="nm">{sp.name}</span>
+                              <span className="meta">{typeLabel(sp.type)} · {hoodLabel(sp.neighborhood)}
+                                {favCounts[sp.id]?.favorites ? ` · ♥ ${favCounts[sp.id].favorites}` : ''}</span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ))
+              )}
+              {tab === 'wishlist' && (
+                wishlist.length === 0 ? <div className="hint-sm">Nothing on your wishlist yet — tap ♥ on a spot to add it.</div>
+                  : wishlist.map((s) => <AcctSpotRow key={s.id} s={s} favCounts={favCounts} onToggle={onToggle} onOpenSpot={onOpenSpot} />)
+              )}
+              {tab === 'visited' && (
+                visited.length === 0 ? <div className="hint-sm">No been-there spots yet — tap ✓ on a spot to mark it.</div>
+                  : visited.map((s) => <AcctSpotRow key={s.id} s={s} favCounts={favCounts} onToggle={onToggle} onOpenSpot={onOpenSpot} />)
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
