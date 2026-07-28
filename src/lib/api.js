@@ -59,8 +59,22 @@ export async function upsertSpot(s) {
     p_type: s.type || 'bar', p_status: s.status || 'unknown',
     p_lat: s.lat, p_lng: s.lng, p_approx: !!s.approx,
   })
-  if (error) throw error
-  return Array.isArray(data) ? data[0] : data
+  if (!error) return Array.isArray(data) ? data[0] : data
+
+  // Moderation migration not run yet — fall back to the plain upsert so uploads
+  // still work (without the submitter/approved protections the RPC provides).
+  console.warn('upsert_spot RPC unavailable, falling back to upsert:', error.message)
+  const row = {
+    name: s.name, name_key: norm(s.name),
+    address: s.address || null, neighborhood: s.neighborhood || null,
+    type: s.type || 'bar', status: s.status || 'unknown',
+    lat: s.lat, lng: s.lng, approx: !!s.approx,
+  }
+  const fb = await supabase
+    .from('spots').upsert(row, { onConflict: 'name_key', ignoreDuplicates: false })
+    .select().single()
+  if (fb.error) throw fb.error
+  return fb.data
 }
 
 export async function linkSpotPhoto(spotId, photoId) {
@@ -98,13 +112,27 @@ export async function adminDeletePhoto(photoId, storagePath) {
   if (error) throw error
 }
 
+const PHOTO_COLS = 'spot_photos(photos(id,public_url,storage_path,created_at))'
+const SPOT_COLS = 'id,name,address,neighborhood,type,status,lat,lng,approx'
+
 // Load every spot with its linked photo URLs. RLS decides what comes back:
 // approved spots for everyone, plus your own pending ones, plus everything for admins.
+//
+// Falls back to the pre-moderation column set if the moderation migration hasn't been
+// run yet — otherwise Postgres rejects the whole query and the map goes blank.
 export async function loadSpots() {
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('spots')
-    .select('id,name,address,neighborhood,type,status,lat,lng,approx,approved,submitted_by,spot_photos(photos(id,public_url,storage_path,created_at))')
-  if (error) throw error
+    .select(`${SPOT_COLS},approved,submitted_by,${PHOTO_COLS}`)
+
+  if (error) {
+    console.warn('spots query failed, retrying without moderation columns:', error.message)
+    const fallback = await supabase.from('spots').select(`${SPOT_COLS},${PHOTO_COLS}`)
+    if (fallback.error) throw fallback.error
+    // Without the migration there is no review queue — treat everything as live.
+    data = (fallback.data || []).map((s) => ({ ...s, approved: true, submitted_by: null }))
+  }
+
   return (data || []).map((s) => ({
     ...s,
     // Newest photo first, so the most recently uploaded matchbook is the spot's icon.
