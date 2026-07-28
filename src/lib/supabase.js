@@ -21,11 +21,23 @@ export async function ensureUser() {
   return signed?.user || null
 }
 
+// Where magic links should land. Never localhost: a link created on a dev machine has
+// to be clickable from a phone, and localhost isn't reachable from another device.
+const PROD_URL = 'https://struck-matchbook.vercel.app'
+function signInRedirectTo() {
+  const configured = import.meta.env.VITE_SITE_URL
+  if (configured) return configured
+  if (typeof window === 'undefined') return PROD_URL
+  const { hostname, origin } = window.location
+  if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(hostname)) return PROD_URL
+  return origin
+}
+
 // Send a magic-link sign-in email. No password to manage — click the link to finish signing in.
 export async function sendMagicLink(email) {
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: window.location.origin },
+    options: { emailRedirectTo: signInRedirectTo() },
   })
   if (error) throw error
 }
