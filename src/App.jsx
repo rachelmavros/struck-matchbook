@@ -8,7 +8,7 @@ import {
   readMatchbooksImage, searchPlaces, uploadPhoto, insertPhoto,
   upsertSpot, linkSpotPhoto, adminUpdateSpot, adminDeleteSpot, adminDeletePhoto, loadSpots,
   loadUserLists, setUserList, loadFavoriteCounts, loadComments, addComment, deleteComment,
-  loadMySubmissions, norm,
+  loadMySubmissions, approveSpot, updateOwnSpot, norm,
 } from './lib/api'
 import CropEditor from './CropEditor'
 
@@ -182,7 +182,10 @@ export default function App() {
     [enriched]
   )
 
+  // Pending spots come back from the server for their submitter and for admins, but the
+  // public map/list only ever shows approved ones — pending lives in My Account.
   const visible = useMemo(() => enriched.filter((s) => {
+    if (!s.approved) return false
     if (filters.view === 'wishlist' && !s.wishlist) return false
     if (filters.view === 'visited' && !s.visited) return false
     if (filters.type !== 'all' && s.type !== filters.type) return false
@@ -322,21 +325,36 @@ export default function App() {
     }
     setCropTarget(null)
   }
+  // A draft is only saveable once it carries real coordinates from a Google place pick.
+  const unlocated = review.filter((d) => d.lat == null || d.lng == null)
+
   async function saveReview() {
-    if (!review.length) return
-    setStatus('Saving…')
-    for (const d of review) {
-      const up = await uploadPhoto(d.cropFile, user.id)
-      const photo = await insertPhoto({ path: up.path, publicUrl: up.publicUrl, userId: user.id })
-      const spot = await upsertSpot({
-        name: d.name, address: d.address, neighborhood: d.neighborhood,
-        type: d.type, status: d.status, lat: d.lat, lng: d.lng, approx: false,
-      })
-      await linkSpotPhoto(spot.id, photo.id)
+    if (!review.length || !user) return
+    if (unlocated.length) {
+      setStatus('Pick a location from the dropdown for every matchbook first.')
+      return
     }
-    const n = review.length
-    setReview([]); setStatus(`Saved ${n} spot${n === 1 ? '' : 's'}.`)
-    await refresh(user.id)
+    setStatus('Saving…')
+    try {
+      for (const d of review) {
+        const up = await uploadPhoto(d.cropFile, user.id)
+        const photo = await insertPhoto({ path: up.path, publicUrl: up.publicUrl, userId: user.id })
+        const spot = await upsertSpot({
+          name: d.name, address: d.address, neighborhood: d.neighborhood,
+          type: d.type, status: d.status, lat: d.lat, lng: d.lng, approx: false,
+        })
+        await linkSpotPhoto(spot.id, photo.id)
+      }
+      const n = review.length
+      setReview([])
+      setStatus(profile?.is_admin
+        ? `Saved ${n} spot${n === 1 ? '' : 's'}.`
+        : `Submitted ${n} spot${n === 1 ? '' : 's'} for review — you’ll see them in My Account.`)
+      await refresh(user.id)
+    } catch (e) {
+      console.warn(e)
+      setStatus('Couldn’t save — try again.')
+    }
   }
 
   /* ----- manual assignment (live search dropdown) ----- */
@@ -355,25 +373,19 @@ export default function App() {
     setPending((p) => p.filter((x) => x.id !== id))
     setCandidates((c) => { const n = { ...c }; delete n[id]; return n })
   }
-  async function assign(pend, cand) {
-    if (!user) { setStatus('Not signed in yet — try again in a moment.'); return }
-    setAssigning(pend.id)
-    try {
-      const up = await uploadPhoto(pend.cropFile, user.id)
-      const photo = await insertPhoto({ path: up.path, publicUrl: up.publicUrl, userId: user.id })
-      const spot = await upsertSpot({
-        name: cand.name, address: cand.address, neighborhood: cand.neighborhood,
-        type: cand.type || 'other', status: 'unknown', lat: cand.lat, lng: cand.lng, approx: false,
-      })
-      await linkSpotPhoto(spot.id, photo.id)
-      dismissPending(pend.id)
-      await refresh(user.id)
-    } catch (e) {
-      console.warn(e)
-      setStatus('Couldn’t save that spot — try again.')
-    } finally {
-      setAssigning(null)
-    }
+  // Picking a place from the dropdown only stages it as a draft — nothing is written
+  // until "Save … to map". That keeps every save behind the one big button.
+  function assign(pend, cand) {
+    setReview((r) => [...r, {
+      tempId: crypto.randomUUID(),
+      cropFile: pend.cropFile, previewUrl: pend.previewUrl,
+      canvas: pend.canvas, bbox: pend.bbox,
+      name: cand.name, type: cand.type || 'other',
+      address: cand.address || '', neighborhood: cand.neighborhood || '',
+      lat: cand.lat, lng: cand.lng, status: 'unknown',
+    }])
+    dismissPending(pend.id)
+    setStatus('Added to the review list — press “Save to map” when you’re done.')
   }
 
   /* ----- lists ----- */
@@ -429,19 +441,32 @@ export default function App() {
                       <div className="grow">
                         <input className="draft-name" value={d.name}
                           onChange={(e) => updateDraft(d.tempId, { name: e.target.value })} />
-                        <div className="draft-addr">{[d.neighborhood, d.address].filter(Boolean).join(' · ') || 'located'}</div>
+                        <div className={'draft-addr' + (d.lat == null ? ' warn' : '')}>
+                          {d.lat == null
+                            ? 'No location yet — pick one from the dropdown'
+                            : ([d.neighborhood, d.address].filter(Boolean).join(' · ') || 'located')}
+                        </div>
                         <div className="draft-row">
                           <select value={d.type} onChange={(e) => updateDraft(d.tempId, { type: e.target.value })}>
                             {TYPES.map((t) => <option key={t} value={t}>{typeLabel(t)}</option>)}
                           </select>
-                          <button className="linkbtn" onClick={() => draftToPending(d)}>Wrong spot?</button>
+                          <button className="linkbtn" onClick={() => draftToPending(d)}>
+                            {d.lat == null ? 'Find location' : 'Wrong spot?'}
+                          </button>
                         </div>
                       </div>
                       <button className="xbtn" title="Discard" onClick={() => removeDraft(d.tempId)}>×</button>
                     </div>
                   ))}
+                  {unlocated.length > 0 && (
+                    <div className="hint-sm warn">
+                      {unlocated.length} still need{unlocated.length === 1 ? 's' : ''} a location picked from the dropdown.
+                    </div>
+                  )}
                   <div className="stage-actions">
-                    <button className="go save" onClick={saveReview}>Save {review.length} to map</button>
+                    <button className="go save" disabled={unlocated.length > 0} onClick={saveReview}>
+                      Save {review.length} to map
+                    </button>
                     <button className="ghost" onClick={() => setReview([])}>Discard all</button>
                   </div>
                 </>
@@ -542,6 +567,8 @@ export default function App() {
         Clean map by CARTO. Gold pins are on your wishlist; orange pins are approximate. Zoom in once to see place names on the map.
       </footer>
 
+      <InstallPrompt />
+
       {accountOpen && (
         <AccountModal
           profile={profile} user={user}
@@ -551,6 +578,11 @@ export default function App() {
           mySubs={mySubs} enriched={enriched} favCounts={favCounts}
           onToggle={toggle}
           onOpenSpot={(id) => { setAccountOpen(false); setModalId(id); setGIndex(0) }}
+          isAdmin={!!profile?.is_admin}
+          onApprove={async (id) => { await approveSpot(id); await refresh(user?.id) }}
+          onAdminSaveSpot={async (id, patch) => { await adminUpdateSpot(id, patch); await refresh(user?.id) }}
+          onOwnSaveSpot={async (id, patch) => { await updateOwnSpot(id, patch); await refresh(user?.id) }}
+          onDeleteSpot={async (id) => { await adminDeleteSpot(id); await refresh(user?.id) }}
         />
       )}
 
@@ -740,15 +772,106 @@ function AcctSpotRow({ s, favCounts, onToggle, onOpenSpot }) {
   )
 }
 
+// One submitted spot: shows its review status, and (for the submitter or an admin)
+// an inline edit form. A non-admin editing an approved spot sends it back to review.
+function SubmissionRow({ s, canEdit, admin, onOpenSpot, onApprove, onSave, onDelete }) {
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [draft, setDraft] = useState(null)
+
+  function startEdit() {
+    setDraft({
+      name: s.name, address: s.address || '', neighborhood: s.neighborhood || '',
+      type: s.type, status: s.status || 'unknown',
+    })
+    setEditing(true)
+  }
+  async function run(fn) {
+    setBusy(true)
+    try { await fn() } catch (e) { console.warn(e); alert('That didn’t save — try again.') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="acct-spot subrow">
+      <div className="top">
+        {s.photos?.[0]
+          ? <img className="thumb" src={s.photos[0].public_url} alt="" onClick={() => onOpenSpot(s.id)} />
+          : <div className="thumb ph" onClick={() => onOpenSpot(s.id)} />}
+        <div className="grow" onClick={() => !editing && onOpenSpot(s.id)}>
+          <div className="nm">{s.name}</div>
+          <div className="meta">
+            <span className={'tag ' + s.type}>{typeLabel(s.type)}</span>
+            <span className={'tag ' + (s.approved ? 'approved' : 'pending')}>
+              {s.approved ? 'Live' : 'Pending review'}
+            </span>
+          </div>
+          <div className="meta">{shortAddress(s.address, s.neighborhood)}</div>
+        </div>
+      </div>
+
+      {canEdit && !editing && (
+        <div className="subrow-acts">
+          {admin && !s.approved && onApprove &&
+            <button className="go save tiny" disabled={busy} onClick={() => run(() => onApprove(s.id))}>Approve</button>}
+          <button className="ghost tiny" onClick={startEdit}>Edit</button>
+          {onDelete && (
+            <button className="ghost tiny danger" disabled={busy}
+              onClick={() => { if (confirm('Delete this spot entirely? This can’t be undone.')) run(onDelete) }}>
+              Delete
+            </button>
+          )}
+        </div>
+      )}
+
+      {editing && (
+        <div className="admin-form">
+          <label>Name<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+          <label>Address<input value={draft.address} onChange={(e) => setDraft({ ...draft, address: e.target.value })} /></label>
+          <label>Neighborhood<input value={draft.neighborhood} onChange={(e) => setDraft({ ...draft, neighborhood: e.target.value })} /></label>
+          <div className="admin-row">
+            <label>Type
+              <select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })}>
+                {TYPES.map((t) => <option key={t} value={t}>{typeLabel(t)}</option>)}
+              </select>
+            </label>
+            <label>Status
+              <select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}>
+                <option value="unknown">Unknown</option>
+                <option value="open">Open</option>
+                <option value="closed">Closed</option>
+              </select>
+            </label>
+          </div>
+          {!admin && s.approved && (
+            <div className="hint-sm warn">Saving changes sends this back for review.</div>
+          )}
+          <div className="admin-row">
+            <button className="go save tiny" disabled={busy}
+              onClick={() => run(async () => { await onSave(draft); setEditing(false) })}>Save</button>
+            <button className="ghost tiny" onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // "My Account" modal: sign-in form when signed out, else tabs for the user's own
 // submissions, wishlist, and been-there lists.
 function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus, onSend, onSignOut,
-  onClose, mySubs, enriched, favCounts, onToggle, onOpenSpot }) {
-  const [tab, setTab] = useState('subs') // 'subs' | 'wishlist' | 'visited'
+  onClose, mySubs, enriched, favCounts, onToggle, onOpenSpot,
+  isAdmin, onApprove, onAdminSaveSpot, onOwnSaveSpot, onDeleteSpot }) {
+  const [tab, setTab] = useState(isAdmin ? 'queue' : 'subs')
   const signedIn = !!profile?.email
 
   const wishlist = useMemo(() => enriched.filter((s) => s.wishlist), [enriched])
   const visited = useMemo(() => enriched.filter((s) => s.visited), [enriched])
+  const queue = useMemo(() => enriched.filter((s) => !s.approved), [enriched])
+  const mySpots = useMemo(
+    () => enriched.filter((s) => user && s.submitted_by === user.id),
+    [enriched, user]
+  )
 
   return (
     <div className="overlay" onClick={(e) => { if (e.target.classList.contains('overlay')) onClose() }}>
@@ -779,30 +902,53 @@ function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus, onSe
         ) : (
           <>
             <div className="acct-tabs">
-              <button className={'atab' + (tab === 'subs' ? ' on' : '')} onClick={() => setTab('subs')}>My Submissions</button>
+              {isAdmin && (
+                <button className={'atab' + (tab === 'queue' ? ' on' : '')} onClick={() => setTab('queue')}>
+                  Pending{queue.length ? ` (${queue.length})` : ''}
+                </button>
+              )}
+              <button className={'atab' + (tab === 'subs' ? ' on' : '')} onClick={() => setTab('subs')}>Mine</button>
               <button className={'atab' + (tab === 'wishlist' ? ' on' : '')} onClick={() => setTab('wishlist')}>♥ Wishlist</button>
               <button className={'atab' + (tab === 'visited' ? ' on' : '')} onClick={() => setTab('visited')}>✓ Been</button>
             </div>
             <div className="acct-body">
+              {tab === 'queue' && (
+                queue.length === 0
+                  ? <div className="hint-sm">Nothing waiting for review — you’re all caught up.</div>
+                  : queue.map((s) => (
+                    <SubmissionRow key={s.id} s={s} canEdit admin
+                      onOpenSpot={onOpenSpot} onApprove={onApprove}
+                      onSave={(patch) => onAdminSaveSpot(s.id, patch)}
+                      onDelete={() => onDeleteSpot(s.id)} />
+                  ))
+              )}
               {tab === 'subs' && (
                 !user ? <div className="hint-sm">Connecting…</div>
-                  : mySubs.length === 0 ? <div className="hint-sm">Nothing uploaded yet from this account.</div>
-                  : mySubs.map((sub) => (
-                    <div className="subcard" key={sub.photoId}>
-                      <img className="thumb" src={sub.publicUrl} alt="" />
-                      <div className="grow">
-                        {sub.spots.length === 0
-                          ? <div className="nm">Not linked to a spot</div>
-                          : sub.spots.map((sp) => (
-                            <div key={sp.id} className="sub-row" onClick={() => onOpenSpot(sp.id)}>
-                              <span className="nm">{sp.name}</span>
-                              <span className="meta">{typeLabel(sp.type)} · {hoodLabel(sp.neighborhood)}
-                                {favCounts[sp.id]?.favorites ? ` · ♥ ${favCounts[sp.id].favorites}` : ''}</span>
+                  : mySpots.length === 0 && mySubs.length === 0
+                    ? <div className="hint-sm">Nothing submitted yet from this account.</div>
+                    : <>
+                        {mySpots.map((s) => (
+                          <SubmissionRow key={s.id} s={s} canEdit admin={isAdmin}
+                            onOpenSpot={onOpenSpot} onApprove={isAdmin ? onApprove : null}
+                            onSave={(patch) => (isAdmin ? onAdminSaveSpot(s.id, patch) : onOwnSaveSpot(s.id, patch))}
+                            onDelete={isAdmin ? () => onDeleteSpot(s.id) : null} />
+                        ))}
+                        {mySpots.length === 0 && mySubs.map((sub) => (
+                          <div className="subcard" key={sub.photoId}>
+                            <img className="thumb" src={sub.publicUrl} alt="" />
+                            <div className="grow">
+                              {sub.spots.length === 0
+                                ? <div className="nm">Not linked to a spot</div>
+                                : sub.spots.map((sp) => (
+                                  <div key={sp.id} className="sub-row" onClick={() => onOpenSpot(sp.id)}>
+                                    <span className="nm">{sp.name}</span>
+                                    <span className="meta">{typeLabel(sp.type)} · {hoodLabel(sp.neighborhood)}</span>
+                                  </div>
+                                ))}
                             </div>
-                          ))}
-                      </div>
-                    </div>
-                  ))
+                          </div>
+                        ))}
+                      </>
               )}
               {tab === 'wishlist' && (
                 wishlist.length === 0 ? <div className="hint-sm">Nothing on your wishlist yet — tap ♥ on a spot to add it.</div>
@@ -816,6 +962,51 @@ function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus, onSe
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+// Prompt to install the site to the home screen. Android/desktop Chrome fire
+// beforeinstallprompt and get a real button; iOS Safari has no such API, so it gets
+// the manual Share → Add to Home Screen instructions instead.
+function InstallPrompt() {
+  const [deferred, setDeferred] = useState(null)
+  const [showIos, setShowIos] = useState(false)
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem('struck-install-dismissed') === '1' } catch { return false }
+  })
+
+  useEffect(() => {
+    const onPrompt = (e) => { e.preventDefault(); setDeferred(e) }
+    window.addEventListener('beforeinstallprompt', onPrompt)
+    return () => window.removeEventListener('beforeinstallprompt', onPrompt)
+  }, [])
+
+  const standalone = typeof window !== 'undefined' &&
+    (window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone)
+  const isIos = typeof navigator !== 'undefined' &&
+    /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream
+
+  if (standalone || dismissed) return null
+  if (!deferred && !isIos) return null
+
+  function close() {
+    setDismissed(true)
+    try { localStorage.setItem('struck-install-dismissed', '1') } catch { /* private mode */ }
+  }
+
+  return (
+    <div className="installbar">
+      <div className="grow">
+        <b>Add Struck to your home screen</b>
+        {showIos || !deferred
+          ? <div className="hint-sm">Tap the Share icon, then “Add to Home Screen”.</div>
+          : <div className="hint-sm">Get to the map in one tap, like an app.</div>}
+      </div>
+      {deferred
+        ? <button className="go save tiny" onClick={async () => { deferred.prompt(); setDeferred(null) }}>Install</button>
+        : <button className="ghost tiny" onClick={() => setShowIos((v) => !v)}>How?</button>}
+      <button className="xbtn" title="Dismiss" onClick={close}>×</button>
     </div>
   )
 }

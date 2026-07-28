@@ -50,19 +50,17 @@ export async function insertPhoto({ path, publicUrl, userId }) {
 
 /* ---------- spots ---------- */
 
+// Goes through the upsert_spot RPC so a repeat upload of an existing spot can't
+// overwrite that spot's original submitter or un-approve it.
 export async function upsertSpot(s) {
-  const row = {
-    name: s.name, name_key: norm(s.name),
-    address: s.address || null, neighborhood: s.neighborhood || null,
-    type: s.type || 'bar', status: s.status || 'unknown',
-    lat: s.lat, lng: s.lng, approx: !!s.approx,
-  }
-  const { data, error } = await supabase
-    .from('spots')
-    .upsert(row, { onConflict: 'name_key', ignoreDuplicates: false })
-    .select().single()
+  const { data, error } = await supabase.rpc('upsert_spot', {
+    p_name: s.name, p_name_key: norm(s.name),
+    p_address: s.address || '', p_neighborhood: s.neighborhood || '',
+    p_type: s.type || 'bar', p_status: s.status || 'unknown',
+    p_lat: s.lat, p_lng: s.lng, p_approx: !!s.approx,
+  })
   if (error) throw error
-  return data
+  return Array.isArray(data) ? data[0] : data
 }
 
 export async function linkSpotPhoto(spotId, photoId) {
@@ -100,16 +98,39 @@ export async function adminDeletePhoto(photoId, storagePath) {
   if (error) throw error
 }
 
-// Load every spot with its linked photo URLs.
+// Load every spot with its linked photo URLs. RLS decides what comes back:
+// approved spots for everyone, plus your own pending ones, plus everything for admins.
 export async function loadSpots() {
   const { data, error } = await supabase
     .from('spots')
-    .select('id,name,address,neighborhood,type,status,lat,lng,approx,spot_photos(photos(id,public_url,storage_path))')
+    .select('id,name,address,neighborhood,type,status,lat,lng,approx,approved,submitted_by,spot_photos(photos(id,public_url,storage_path,created_at))')
   if (error) throw error
   return (data || []).map((s) => ({
     ...s,
-    photos: (s.spot_photos || []).map((sp) => sp.photos).filter(Boolean),
+    // Newest photo first, so the most recently uploaded matchbook is the spot's icon.
+    photos: (s.spot_photos || []).map((sp) => sp.photos).filter(Boolean)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
   }))
+}
+
+/* ---------- moderation ---------- */
+
+export async function approveSpot(spotId) {
+  const { error } = await supabase.from('spots').update({ approved: true }).eq('id', spotId)
+  if (error) throw error
+}
+
+// Edit a spot you submitted yourself. RLS forces approved=false on this path, so
+// editing an already-approved spot sends it back to the review queue.
+export async function updateOwnSpot(spotId, patch) {
+  const row = { approved: false }
+  for (const k of ['name', 'address', 'neighborhood', 'type', 'status']) {
+    if (patch[k] !== undefined) row[k] = patch[k]
+  }
+  if (row.name) row.name_key = norm(row.name)
+  const { data, error } = await supabase.from('spots').update(row).eq('id', spotId).select().single()
+  if (error) throw error
+  return data
 }
 
 /* ---------- favorite / visit counts (public aggregate, no per-user identity) ---------- */

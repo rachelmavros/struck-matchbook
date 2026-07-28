@@ -211,6 +211,28 @@ footer{margin-top:26px;font-size:12.5px;color:#8a7c63;line-height:1.6}
 .crop-handle.se{left:100%;top:100%;cursor:nwse-resize}
 .crop-actions{padding:0 18px 18px}
 
+/* ---------- moderation ---------- */
+.tag.pending{background:#fbe6cf;color:#a1541b}
+.tag.approved{background:#e3ead9;color:var(--sage)}
+.hint-sm.warn{color:#a1541b}
+.draft-addr.warn{color:#a1541b;font-weight:600}
+.subrow{padding-bottom:12px}
+.subrow-acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.go.save.tiny,.ghost.tiny{font-size:11px;padding:7px 12px;flex:0 0 auto;width:auto;margin-top:0}
+.ghost.danger{color:var(--red);border-color:#e0bdbb}
+.admin-form{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.admin-form label{font-family:'Oswald';font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--sage);display:block}
+.admin-form input{width:100%;margin-top:4px;font-family:'Spectral';font-size:13px;padding:7px;border:1px solid var(--stock-dk);border-radius:6px;background:#fffdf7;color:var(--ink)}
+.admin-row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.admin-row label{flex:1;min-width:110px}
+
+/* ---------- add to home screen ---------- */
+.installbar{position:fixed;left:12px;right:12px;bottom:12px;z-index:900;display:flex;gap:10px;align-items:center;background:#fbf6ea;border:1px solid var(--stock-dk);border-left:4px solid var(--red);border-radius:10px;padding:11px 12px;box-shadow:0 8px 24px rgba(60,40,20,.22)}
+.installbar .grow{flex:1;min-width:0}
+.installbar b{font-family:'Oswald';font-size:13px;letter-spacing:.03em;color:var(--ink)}
+.installbar .hint-sm{margin-top:2px}
+@media(min-width:861px){.installbar{left:auto;right:20px;max-width:380px}}
+
 /* admin: delete a single photo from a spot's gallery */
 .gdelete{position:absolute;top:8px;left:8px;border:none;background:rgba(158,27,31,.85);color:#fff;font-family:'Oswald';font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:6px 10px;border-radius:5px;cursor:pointer}
 .gdelete:hover{background:var(--red)}

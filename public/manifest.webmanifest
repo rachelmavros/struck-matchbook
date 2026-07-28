@@ -1,0 +1,12 @@
+{
+  "name": "Struck — Chicago Matchbook Map",
+  "short_name": "Struck",
+  "description": "A map of Chicago bars, restaurants and hotels, built from matchbook covers.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#efe6d0",
+  "theme_color": "#9e1b1f",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
