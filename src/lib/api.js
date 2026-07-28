@@ -89,11 +89,22 @@ export async function adminDeleteSpot(spotId) {
   if (error) throw error
 }
 
+// Admin-only: remove a single photo from a spot's gallery (storage object + row).
+// The spot itself is untouched — spot_photos.photo_id cascades on delete.
+export async function adminDeletePhoto(photoId, storagePath) {
+  if (storagePath) {
+    const { error: sErr } = await supabase.storage.from(BUCKET).remove([storagePath])
+    if (sErr) console.warn('storage remove failed:', sErr.message)
+  }
+  const { error } = await supabase.from('photos').delete().eq('id', photoId)
+  if (error) throw error
+}
+
 // Load every spot with its linked photo URLs.
 export async function loadSpots() {
   const { data, error } = await supabase
     .from('spots')
-    .select('id,name,address,neighborhood,type,status,lat,lng,approx,spot_photos(photos(id,public_url))')
+    .select('id,name,address,neighborhood,type,status,lat,lng,approx,spot_photos(photos(id,public_url,storage_path))')
   if (error) throw error
   return (data || []).map((s) => ({
     ...s,

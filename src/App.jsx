@@ -6,10 +6,11 @@ import {
 } from './lib/vision'
 import {
   readMatchbooksImage, searchPlaces, uploadPhoto, insertPhoto,
-  upsertSpot, linkSpotPhoto, adminUpdateSpot, adminDeleteSpot, loadSpots,
+  upsertSpot, linkSpotPhoto, adminUpdateSpot, adminDeleteSpot, adminDeletePhoto, loadSpots,
   loadUserLists, setUserList, loadFavoriteCounts, loadComments, addComment, deleteComment,
   loadMySubmissions, norm,
 } from './lib/api'
+import CropEditor from './CropEditor'
 
 const CHI = [41.8781, -87.6298]
 const TYPES = ['bar', 'restaurant', 'coffee_shop', 'hotel', 'theater', 'other']
@@ -97,11 +98,13 @@ export default function App() {
   const [review, setReview] = useState([])        // proposed matches, not yet saved
   const [pending, setPending] = useState([])       // couldn't place -> manual search
   const [candidates, setCandidates] = useState({}) // pendingId -> results | 'loading'
+  const [assigning, setAssigning] = useState(null)  // pendingId currently being saved
   const [filters, setFilters] = useState({ view: 'all', type: 'all', hood: 'all' })
   const [status, setStatus] = useState('')
   const [staged, setStaged] = useState(null)
   const [modalId, setModalId] = useState(null)
   const [gIndex, setGIndex] = useState(0)
+  const [cropTarget, setCropTarget] = useState(null) // { kind: 'draft'|'pending', id, canvas, bbox }
 
   const mapEl = useRef(null)
   const mapRef = useRef(null)
@@ -254,10 +257,8 @@ export default function App() {
     for (let i = 0; i < items.length; i++) {
       const it = items[i]
       setStatus(`Placing ${i + 1}/${items.length}: ${it.name}`)
-      const cropFile = await canvasToFile(
-        isValidBbox(it.bbox) ? cropNormalized(canvas, it.bbox) : canvas,
-        'matchbook.jpg'
-      )
+      const bbox = isValidBbox(it.bbox) ? it.bbox : [0, 0, 1, 1]
+      const cropFile = await canvasToFile(cropNormalized(canvas, bbox), 'matchbook.jpg')
       const previewUrl = URL.createObjectURL(cropFile)
 
       const query = it.address ? `${it.name} ${it.address}` : `${it.name}, Chicago`
@@ -265,18 +266,19 @@ export default function App() {
       if (cands.length) {
         const c = cands[0]
         drafts.push({
-          tempId: crypto.randomUUID(), cropFile, previewUrl,
+          tempId: crypto.randomUUID(), cropFile, previewUrl, canvas, bbox,
           name: it.name, type: it.type || c.type || 'other',
           address: c.address || it.address || '', neighborhood: c.neighborhood || it.neighborhood || '',
           lat: c.lat, lng: c.lng, status: it.status || 'unknown',
         })
       } else {
-        newPending.push({ id: crypto.randomUUID(), cropFile, previewUrl, prefill: it.name || '' })
+        newPending.push({ id: crypto.randomUUID(), cropFile, previewUrl, canvas, bbox, prefill: it.name || '' })
       }
     }
     for (let k = 0; k < unreadable && (drafts.length + newPending.length) < 20; k++) {
+      const bbox = [0, 0, 1, 1]
       const cropFile = await canvasToFile(canvas, 'matchbook.jpg')
-      newPending.push({ id: crypto.randomUUID(), cropFile, previewUrl: URL.createObjectURL(cropFile), prefill: '' })
+      newPending.push({ id: crypto.randomUUID(), cropFile, previewUrl: URL.createObjectURL(cropFile), canvas, bbox, prefill: '' })
     }
 
     setReview((r) => [...drafts, ...r])
@@ -293,9 +295,32 @@ export default function App() {
   function removeDraft(id) { setReview((r) => r.filter((d) => d.tempId !== id)) }
   function draftToPending(d) {
     const id = crypto.randomUUID()
-    setPending((p) => [{ id, cropFile: d.cropFile, previewUrl: d.previewUrl, prefill: d.name }, ...p])
+    setPending((p) => [{ id, cropFile: d.cropFile, previewUrl: d.previewUrl, canvas: d.canvas, bbox: d.bbox, prefill: d.name }, ...p])
     setReview((r) => r.filter((x) => x.tempId !== d.tempId))
     runSearch(id, d.name)
+  }
+
+  /* ----- manual crop adjustment (review screen, before saving) ----- */
+  async function handleCropConfirm(newBbox) {
+    const target = cropTarget
+    if (!target) return
+    const cropped = cropNormalized(target.canvas, newBbox)
+    const file = await canvasToFile(cropped, 'matchbook.jpg')
+    const url = URL.createObjectURL(file)
+    if (target.kind === 'draft') {
+      setReview((r) => r.map((d) => {
+        if (d.tempId !== target.id) return d
+        URL.revokeObjectURL(d.previewUrl)
+        return { ...d, cropFile: file, previewUrl: url, bbox: newBbox }
+      }))
+    } else {
+      setPending((p) => p.map((x) => {
+        if (x.id !== target.id) return x
+        URL.revokeObjectURL(x.previewUrl)
+        return { ...x, cropFile: file, previewUrl: url, bbox: newBbox }
+      }))
+    }
+    setCropTarget(null)
   }
   async function saveReview() {
     if (!review.length) return
@@ -331,15 +356,24 @@ export default function App() {
     setCandidates((c) => { const n = { ...c }; delete n[id]; return n })
   }
   async function assign(pend, cand) {
-    const up = await uploadPhoto(pend.cropFile, user.id)
-    const photo = await insertPhoto({ path: up.path, publicUrl: up.publicUrl, userId: user.id })
-    const spot = await upsertSpot({
-      name: cand.name, address: cand.address, neighborhood: cand.neighborhood,
-      type: cand.type || 'other', status: 'unknown', lat: cand.lat, lng: cand.lng, approx: false,
-    })
-    await linkSpotPhoto(spot.id, photo.id)
-    dismissPending(pend.id)
-    await refresh(user.id)
+    if (!user) { setStatus('Not signed in yet — try again in a moment.'); return }
+    setAssigning(pend.id)
+    try {
+      const up = await uploadPhoto(pend.cropFile, user.id)
+      const photo = await insertPhoto({ path: up.path, publicUrl: up.publicUrl, userId: user.id })
+      const spot = await upsertSpot({
+        name: cand.name, address: cand.address, neighborhood: cand.neighborhood,
+        type: cand.type || 'other', status: 'unknown', lat: cand.lat, lng: cand.lng, approx: false,
+      })
+      await linkSpotPhoto(spot.id, photo.id)
+      dismissPending(pend.id)
+      await refresh(user.id)
+    } catch (e) {
+      console.warn(e)
+      setStatus('Couldn’t save that spot — try again.')
+    } finally {
+      setAssigning(null)
+    }
   }
 
   /* ----- lists ----- */
@@ -387,7 +421,11 @@ export default function App() {
                   <div className="stage-h">Review {review.length} match{review.length === 1 ? '' : 'es'} · not saved yet</div>
                   {review.map((d) => (
                     <div className="draft" key={d.tempId}>
-                      <img className="thumb" src={d.previewUrl} alt="" />
+                      <div className="thumb-wrap">
+                        <img className="thumb" src={d.previewUrl} alt="" />
+                        <button className="cropbtn" title="Adjust crop"
+                          onClick={() => setCropTarget({ kind: 'draft', id: d.tempId, canvas: d.canvas, bbox: d.bbox })}>⤢</button>
+                      </div>
                       <div className="grow">
                         <input className="draft-name" value={d.name}
                           onChange={(e) => updateDraft(d.tempId, { name: e.target.value })} />
@@ -411,7 +449,11 @@ export default function App() {
 
               {pending.map((p) => (
                 <div className="assign" key={p.id}>
-                  <img src={p.previewUrl} alt="unplaced matchbook" />
+                  <div className="thumb-wrap">
+                    <img src={p.previewUrl} alt="unplaced matchbook" />
+                    <button className="cropbtn" title="Adjust crop"
+                      onClick={() => setCropTarget({ kind: 'pending', id: p.id, canvas: p.canvas, bbox: p.bbox })}>⤢</button>
+                  </div>
                   <div className="body">
                     <div className="assign-head">
                       <span className="lbl">Couldn’t place — search it</span>
@@ -425,8 +467,8 @@ export default function App() {
                       {Array.isArray(candidates[p.id]) && candidates[p.id].length === 0 &&
                         <div className="hint-sm">start typing to see matches</div>}
                       {Array.isArray(candidates[p.id]) && candidates[p.id].map((c, i) => (
-                        <button className="cand" key={i} onClick={() => assign(p, c)}>
-                          {c.name}<br /><small>{[c.neighborhood, c.address].filter(Boolean).join(' · ')}</small>
+                        <button className="cand" key={i} disabled={assigning === p.id} onClick={() => assign(p, c)}>
+                          {assigning === p.id ? 'Saving…' : <>{c.name}<br /><small>{[c.neighborhood, c.address].filter(Boolean).join(' · ')}</small></>}
                         </button>
                       ))}
                     </div>
@@ -518,13 +560,19 @@ export default function App() {
           user={user} isAdmin={!!profile?.is_admin}
           onAdminSave={async (patch) => { await adminUpdateSpot(modalSpot.id, patch); await refresh(user?.id) }}
           onAdminDelete={async () => { await adminDeleteSpot(modalSpot.id); setModalId(null); await refresh(user?.id) }}
+          onAdminDeletePhoto={async (photoId, storagePath) => { await adminDeletePhoto(photoId, storagePath); await refresh(user?.id) }}
         />
+      )}
+
+      {cropTarget && (
+        <CropEditor canvas={cropTarget.canvas} bbox={cropTarget.bbox}
+          onCancel={() => setCropTarget(null)} onConfirm={handleCropConfirm} />
       )}
     </div>
   )
 }
 
-function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin, onAdminSave, onAdminDelete }) {
+function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin, onAdminSave, onAdminDelete, onAdminDeletePhoto }) {
   const photos = spot.photos || []
   const meta = shortAddress(spot.address, spot.neighborhood)
   const idx = photos.length ? ((gIndex % photos.length) + photos.length) % photos.length : 0
@@ -603,6 +651,12 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin, onAd
                   <button className="gnav next" onClick={() => setGIndex(idx + 1)}>›</button>
                 </>}
                 <div className="gcount">{idx + 1} / {photos.length}</div>
+                {isAdmin && (
+                  <button className="gdelete" title="Delete this photo"
+                    onClick={() => { if (confirm('Delete this photo? This can’t be undone.')) onAdminDeletePhoto(photos[idx].id, photos[idx].storage_path) }}>
+                    Delete photo
+                  </button>
+                )}
               </>}
         </div>
         <div className="mrow">
