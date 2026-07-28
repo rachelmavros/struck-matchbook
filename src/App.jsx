@@ -155,8 +155,18 @@ export default function App() {
   async function handleSendMagicLink() {
     if (!authEmail.trim()) return
     setAuthStatus('Sending…')
-    try { await sendMagicLink(authEmail.trim()); setAuthStatus('Check your email for a sign-in link.') }
-    catch (e) { setAuthStatus('Could not send that — check the address and try again.') }
+    try {
+      await sendMagicLink(authEmail.trim())
+      setAuthStatus('Check your email for a sign-in link.')
+    } catch (e) {
+      // Show what actually failed — a generic message here made real causes
+      // (rate limits, redirect URL not allowlisted) impossible to diagnose.
+      console.warn('magic link failed:', e)
+      const msg = e?.message || 'Unknown error'
+      setAuthStatus(/rate|limit|seconds|too many/i.test(msg)
+        ? `Too many sign-in emails just now — wait a few minutes and try again. (${msg})`
+        : `Could not send that: ${msg}`)
+    }
   }
   async function handleSignOut() {
     await signOut()
