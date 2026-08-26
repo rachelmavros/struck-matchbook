@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
-import { ensureUser, ensureProfile, sendMagicLink, signOut } from './lib/supabase'
+import { ensureUser, ensureProfile, sendMagicLink, signInWithPassword, signOut } from './lib/supabase'
 import {
   loadFileToCanvas, canvasToBase64, cropNormalized, tileRects, isValidBbox, canvasToFile,
 } from './lib/vision'
@@ -89,6 +89,7 @@ export default function App() {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null) // { id, email, is_admin }
   const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
   const [authStatus, setAuthStatus] = useState('')
   const [spots, setSpots] = useState([])
   const [lists, setLists] = useState({})
@@ -166,6 +167,23 @@ export default function App() {
       setAuthStatus(/rate|limit|seconds|too many/i.test(msg)
         ? `Too many sign-in emails just now — wait a few minutes and try again. (${msg})`
         : `Could not send that: ${msg}`)
+    }
+  }
+  // Password sign-in for the admin account — no email involved, so the auth email
+  // rate limit can't lock you out of the review queue.
+  async function handlePasswordSignIn() {
+    if (!authEmail.trim() || !authPassword) return
+    setAuthStatus('Signing in…')
+    try {
+      const u = await signInWithPassword(authEmail.trim(), authPassword)
+      setUser(u)
+      setProfile(await ensureProfile(u))
+      setAuthPassword('')
+      setAuthStatus('')
+      await refresh(u?.id)
+    } catch (e) {
+      console.warn('password sign-in failed:', e)
+      setAuthStatus(`Could not sign in: ${e?.message || 'Unknown error'}`)
     }
   }
   async function handleSignOut() {
@@ -583,7 +601,8 @@ export default function App() {
         <AccountModal
           profile={profile} user={user}
           authEmail={authEmail} setAuthEmail={setAuthEmail} authStatus={authStatus}
-          onSend={handleSendMagicLink} onSignOut={handleSignOut}
+          authPassword={authPassword} setAuthPassword={setAuthPassword}
+          onSend={handleSendMagicLink} onPasswordSignIn={handlePasswordSignIn} onSignOut={handleSignOut}
           onClose={() => setAccountOpen(false)}
           mySubs={mySubs} enriched={enriched} favCounts={favCounts}
           onToggle={toggle}
@@ -869,9 +888,11 @@ function SubmissionRow({ s, canEdit, admin, onOpenSpot, onApprove, onSave, onDel
 
 // "My Account" modal: sign-in form when signed out, else tabs for the user's own
 // submissions, wishlist, and been-there lists.
-function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus, onSend, onSignOut,
+function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
+  authPassword, setAuthPassword, onSend, onPasswordSignIn, onSignOut,
   onClose, mySubs, enriched, favCounts, onToggle, onOpenSpot,
   isAdmin, onApprove, onAdminSaveSpot, onOwnSaveSpot, onDeleteSpot }) {
+  const [mode, setMode] = useState('password') // signed-out: 'password' | 'link'
   const [tab, setTab] = useState(isAdmin ? 'queue' : 'subs')
   const signedIn = !!profile?.email
 
@@ -903,10 +924,23 @@ function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus, onSe
 
         {!signedIn ? (
           <div className="acct-body">
-            <input className="acct-input" type="email" placeholder="you@email.com"
+            <div className="acct-tabs">
+              <button className={'atab' + (mode === 'password' ? ' on' : '')} onClick={() => setMode('password')}>Password</button>
+              <button className={'atab' + (mode === 'link' ? ' on' : '')} onClick={() => setMode('link')}>Email link</button>
+            </div>
+            <input className="acct-input" type="email" placeholder="you@email.com" autoComplete="username"
               value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') onSend() }} />
-            <button className="go" onClick={onSend}>Send sign-in link</button>
+              onKeyDown={(e) => { if (e.key === 'Enter' && mode === 'link') onSend() }} />
+            {mode === 'password' ? (
+              <>
+                <input className="acct-input" type="password" placeholder="Password" autoComplete="current-password"
+                  value={authPassword} onChange={(e) => setAuthPassword(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') onPasswordSignIn() }} />
+                <button className="go" onClick={onPasswordSignIn}>Sign in</button>
+              </>
+            ) : (
+              <button className="go" onClick={onSend}>Send sign-in link</button>
+            )}
             {authStatus && <div className="hint-sm">{authStatus}</div>}
           </div>
         ) : (

@@ -42,6 +42,20 @@ export async function sendMagicLink(email) {
   if (error) throw error
 }
 
+// Password sign-in. Unlike magic links this sends no email at all, so it isn't subject
+// to the auth email rate limit — which is what makes it usable for the admin account.
+// Users are created directly in the Supabase dashboard (Authentication → Users).
+//
+// An anonymous session is already active by this point; signing in with a password from
+// that state errors, so drop the anonymous session first.
+export async function signInWithPassword(email, password) {
+  const { data: sess } = await supabase.auth.getSession()
+  if (sess?.session?.user?.is_anonymous) await supabase.auth.signOut()
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+  if (error) throw error
+  return data.user
+}
+
 export async function signOut() {
   await supabase.auth.signOut()
 }
