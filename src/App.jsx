@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
-import { ensureUser, ensureProfile, sendMagicLink, signInWithPassword, signOut } from './lib/supabase'
+import { ensureUser, ensureProfile, sendMagicLink, signInWithPassword, signUpWithPassword, sendPasswordReset, updatePassword, signOut, supabase } from './lib/supabase'
 import {
   loadFileToCanvas, canvasToBase64, cropNormalized, tileRects, isValidBbox, canvasToFile,
 } from './lib/vision'
@@ -90,6 +90,7 @@ export default function App() {
   const [profile, setProfile] = useState(null) // { id, email, is_admin }
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
+  const [recoveryOpen, setRecoveryOpen] = useState(false)
   const [authStatus, setAuthStatus] = useState('')
   const [spots, setSpots] = useState([])
   const [lists, setLists] = useState({})
@@ -133,13 +134,29 @@ export default function App() {
     map._updateLabels = updateLabels
 
     window.__openSpot = (id) => { setModalId(id); setGIndex(0) }
+
+    // If the user landed here via a password-reset link, don't run the anonymous
+    // sign-in path — that would clobber the recovery session. Open the "set new
+    // password" flow instead.
+    const params = new URLSearchParams(window.location.search)
+    const isRecovery = params.get('recover') === '1' || window.location.hash.includes('type=recovery')
+    const { data: authSub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setUser(session?.user || null)
+        setAccountOpen(true)
+        setRecoveryOpen(true)
+      }
+    })
     ;(async () => {
-      const u = await ensureUser()
+      const u = isRecovery
+        ? (await supabase.auth.getSession()).data?.session?.user || null
+        : await ensureUser()
       setUser(u)
       if (u) setProfile(await ensureProfile(u))
+      if (isRecovery) { setAccountOpen(true); setRecoveryOpen(true) }
       await refresh(u?.id)
     })()
-    return () => { map.remove() }
+    return () => { authSub?.subscription?.unsubscribe?.(); map.remove() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -186,6 +203,63 @@ export default function App() {
       setAuthStatus(`Could not sign in: ${e?.message || 'Unknown error'}`)
     }
   }
+  async function handlePasswordReset() {
+    if (!authEmail.trim()) { setAuthStatus('Enter your email first.'); return }
+    setAuthStatus('Sending reset link…')
+    try {
+      await sendPasswordReset(authEmail.trim())
+      setAuthStatus('Check your email for a reset link. Click it, then set a new password here.')
+    } catch (e) {
+      console.warn('reset failed:', e)
+      const msg = e?.message || 'Unknown error'
+      setAuthStatus(/rate|limit|seconds|too many/i.test(msg)
+        ? `Too many reset emails just now — wait a few minutes and try again. (${msg})`
+        : `Could not send reset: ${msg}`)
+    }
+  }
+
+  async function handleSignUp() {
+    if (!authEmail.trim() || !authPassword) return
+    if (authPassword.length < 6) { setAuthStatus('Password must be at least 6 characters.'); return }
+    setAuthStatus('Creating your account…')
+    try {
+      const u = await signUpWithPassword(authEmail.trim(), authPassword)
+      const sess = (await supabase.auth.getSession()).data?.session
+      if (u && sess) {
+        setUser(u)
+        setProfile(await ensureProfile(u))
+        setAuthPassword('')
+        setAuthStatus('')
+        await refresh(u?.id)
+      } else {
+        setAuthStatus('Account created — check your email to confirm, then sign in.')
+      }
+    } catch (e) {
+      console.warn('sign-up failed:', e)
+      setAuthStatus(`Could not sign up: ${e?.message || 'Unknown error'}`)
+    }
+  }
+
+  async function handleSetNewPassword(newPassword) {
+    if (!newPassword || newPassword.length < 6) {
+      setAuthStatus('Password must be at least 6 characters.')
+      return false
+    }
+    setAuthStatus('Updating password…')
+    try {
+      await updatePassword(newPassword)
+      setRecoveryOpen(false)
+      setAuthPassword('')
+      setAuthStatus('Password updated. You’re signed in.')
+      window.history.replaceState(null, '', window.location.pathname)
+      return true
+    } catch (e) {
+      console.warn('password update failed:', e)
+      setAuthStatus(`Could not update password: ${e?.message || 'Unknown error'}`)
+      return false
+    }
+  }
+
   async function handleSignOut() {
     await signOut()
     setProfile(null)
@@ -602,7 +676,10 @@ export default function App() {
           profile={profile} user={user}
           authEmail={authEmail} setAuthEmail={setAuthEmail} authStatus={authStatus}
           authPassword={authPassword} setAuthPassword={setAuthPassword}
-          onSend={handleSendMagicLink} onPasswordSignIn={handlePasswordSignIn} onSignOut={handleSignOut}
+          onSend={handleSendMagicLink} onPasswordSignIn={handlePasswordSignIn}
+          onSignUp={handleSignUp} onPasswordReset={handlePasswordReset}
+          recoveryOpen={recoveryOpen} onSetNewPassword={handleSetNewPassword}
+          onSignOut={handleSignOut}
           onClose={() => setAccountOpen(false)}
           mySubs={mySubs} enriched={enriched} favCounts={favCounts}
           onToggle={toggle}
@@ -886,10 +963,38 @@ function SubmissionRow({ s, canEdit, admin, onOpenSpot, onApprove, onSave, onDel
   )
 }
 
+// Landed via a password-reset link — collect a new password and set it.
+function RecoveryForm({ authStatus, onSubmit, onCancel }) {
+  const [pw, setPw] = useState('')
+  const [pw2, setPw2] = useState('')
+  const [busy, setBusy] = useState(false)
+  const mismatch = pw && pw2 && pw !== pw2
+  async function submit() {
+    if (mismatch || !pw) return
+    setBusy(true)
+    try { await onSubmit(pw) } finally { setBusy(false) }
+  }
+  return (
+    <div className="acct-body">
+      <div className="hint-sm">Set a new password for your account.</div>
+      <input className="acct-input" type="password" placeholder="New password (6+ chars)" autoComplete="new-password"
+        value={pw} onChange={(e) => setPw(e.target.value)} />
+      <input className="acct-input" type="password" placeholder="Confirm new password" autoComplete="new-password"
+        value={pw2} onChange={(e) => setPw2(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
+      {mismatch && <div className="hint-sm" style={{ color: 'var(--red)' }}>Passwords don’t match.</div>}
+      <button className="go" onClick={submit} disabled={busy || !pw || mismatch}>Update password</button>
+      <button className="linkbtn forgotbtn" onClick={onCancel}>Cancel</button>
+      {authStatus && <div className="hint-sm">{authStatus}</div>}
+    </div>
+  )
+}
+
 // "My Account" modal: sign-in form when signed out, else tabs for the user's own
 // submissions, wishlist, and been-there lists.
 function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
-  authPassword, setAuthPassword, onSend, onPasswordSignIn, onSignOut,
+  authPassword, setAuthPassword, onSend, onPasswordSignIn,
+  onSignUp, onPasswordReset, recoveryOpen, onSetNewPassword, onSignOut,
   onClose, mySubs, enriched, favCounts, onToggle, onOpenSpot,
   isAdmin, onApprove, onAdminSaveSpot, onOwnSaveSpot, onDeleteSpot }) {
   const [mode, setMode] = useState('password') // signed-out: 'password' | 'link'
@@ -922,23 +1027,41 @@ function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
           )}
         </div>
 
-        {!signedIn ? (
+        {recoveryOpen ? (
+          <RecoveryForm authStatus={authStatus} onSubmit={onSetNewPassword} onCancel={() => { window.history.replaceState(null, '', window.location.pathname); window.location.reload() }} />
+        ) : !signedIn ? (
           <div className="acct-body">
             <div className="acct-tabs">
-              <button className={'atab' + (mode === 'password' ? ' on' : '')} onClick={() => setMode('password')}>Password</button>
+              <button className={'atab' + (mode === 'password' ? ' on' : '')} onClick={() => setMode('password')}>Sign in</button>
+              <button className={'atab' + (mode === 'signup' ? ' on' : '')} onClick={() => setMode('signup')}>Create account</button>
               <button className={'atab' + (mode === 'link' ? ' on' : '')} onClick={() => setMode('link')}>Email link</button>
             </div>
             <input className="acct-input" type="email" placeholder="you@email.com" autoComplete="username"
               value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && mode === 'link') onSend() }} />
-            {mode === 'password' ? (
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                if (mode === 'password') onPasswordSignIn()
+                else if (mode === 'signup') onSignUp()
+                else if (mode === 'link') onSend()
+              }} />
+            {mode === 'password' && (
               <>
                 <input className="acct-input" type="password" placeholder="Password" autoComplete="current-password"
                   value={authPassword} onChange={(e) => setAuthPassword(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') onPasswordSignIn() }} />
                 <button className="go" onClick={onPasswordSignIn}>Sign in</button>
+                <button className="linkbtn forgotbtn" onClick={onPasswordReset}>Forgot password?</button>
               </>
-            ) : (
+            )}
+            {mode === 'signup' && (
+              <>
+                <input className="acct-input" type="password" placeholder="Choose a password (6+ chars)" autoComplete="new-password"
+                  value={authPassword} onChange={(e) => setAuthPassword(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') onSignUp() }} />
+                <button className="go" onClick={onSignUp}>Create account</button>
+              </>
+            )}
+            {mode === 'link' && (
               <button className="go" onClick={onSend}>Send sign-in link</button>
             )}
             {authStatus && <div className="hint-sm">{authStatus}</div>}

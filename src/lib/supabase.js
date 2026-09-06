@@ -56,6 +56,35 @@ export async function signInWithPassword(email, password) {
   return data.user
 }
 
+// Send a password-reset email. The link brings the user back to the site with
+// a recovery session active; the app then shows a "set a new password" form.
+export async function sendPasswordReset(email) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: signInRedirectTo() + '?recover=1',
+  })
+  if (error) throw error
+}
+
+// Set a new password for the currently signed-in user. Called after arriving via
+// the recovery link, and can also be used for a normal password change later.
+export async function updatePassword(newPassword) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) throw error
+}
+
+// Create a new account with email + password. Whether Supabase demands email
+// confirmation depends on the "Confirm email" setting in the dashboard.
+export async function signUpWithPassword(email, password) {
+  const { data: sess } = await supabase.auth.getSession()
+  if (sess?.session?.user?.is_anonymous) await supabase.auth.signOut()
+  const { data, error } = await supabase.auth.signUp({
+    email, password,
+    options: { emailRedirectTo: signInRedirectTo() },
+  })
+  if (error) throw error
+  return data.user
+}
+
 export async function signOut() {
   await supabase.auth.signOut()
 }

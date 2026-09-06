@@ -236,3 +236,5 @@ footer{margin-top:26px;font-size:12.5px;color:#8a7c63;line-height:1.6}
 /* admin: delete a single photo from a spot's gallery */
 .gdelete{position:absolute;top:8px;left:8px;border:none;background:rgba(158,27,31,.85);color:#fff;font-family:'Oswald';font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:6px 10px;border-radius:5px;cursor:pointer}
 .gdelete:hover{background:var(--red)}
+
+.forgotbtn{display:block;margin-top:10px;text-align:center;width:100%;padding:6px 0}
