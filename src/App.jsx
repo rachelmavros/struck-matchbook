@@ -7,7 +7,7 @@ import {
 import {
   readMatchbooksImage, searchPlaces, uploadPhoto, insertPhoto,
   upsertSpot, linkSpotPhoto, adminUpdateSpot, adminDeleteSpot, adminDeletePhoto, adminReplacePhoto,
-  adminRestoreSpot, adminPurgeSpot, adminRestorePhoto, adminPurgePhoto, loadTrash, loadSpots,
+  adminRestoreSpot, adminPurgeSpot, adminRestorePhoto, adminPurgePhoto, mergeSpots, loadTrash, loadSpots,
   loadUserLists, setUserList, loadFavoriteCounts, loadComments, addComment, deleteComment,
   loadMySubmissions, approveSpot, updateOwnSpot, norm,
 } from './lib/api'
@@ -782,6 +782,7 @@ export default function App() {
           onClose={() => setModalId(null)} onToggle={toggle}
           user={user} isAdmin={!!profile?.is_admin}
           onAdminSave={async (patch) => { await adminUpdateSpot(modalSpot.id, patch); await refresh(user?.id) }}
+          onAdminMerge={async (removeId, keepId) => { await mergeSpots(keepId, removeId); await refresh(user?.id) }}
           onAdminDelete={async () => { await adminDeleteSpot(modalSpot.id); setModalId(null); await refresh(user?.id) }}
           onAdminDeletePhoto={async (photoId, storagePath) => { await adminDeletePhoto(photoId, storagePath); await refresh(user?.id) }}
           onAdminRecropPhoto={handleRecropPhoto}
@@ -797,7 +798,7 @@ export default function App() {
 }
 
 function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin,
-  onAdminSave, onAdminDelete, onAdminDeletePhoto, onAdminRecropPhoto }) {
+  onAdminSave, onAdminDelete, onAdminDeletePhoto, onAdminRecropPhoto, onAdminMerge }) {
   const photos = spot.photos || []
   const meta = shortAddress(spot.address, spot.neighborhood)
   const idx = photos.length ? ((gIndex % photos.length) + photos.length) % photos.length : 0
@@ -817,9 +818,28 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin,
   }
   async function saveEdit() {
     setSaveBusy(true)
-    try { await onAdminSave(draft); setEditing(false) }
-    catch (e) { console.warn('save failed:', e); alert('That didn’t save: ' + (e?.message || 'unknown error')) }
-    finally { setSaveBusy(false) }
+    try {
+      await onAdminSave(draft)
+      setEditing(false)
+    } catch (e) {
+      console.warn('save failed:', e)
+      if (e?.duplicateSpot && onAdminMerge) {
+        if (confirm(`${e.message}. Merge this spot's photos and lists into "${e.duplicateSpot.name}" and remove this duplicate?`)) {
+          try {
+            await onAdminMerge(spot.id, e.duplicateSpot.id)
+            setEditing(false)
+            onClose()
+          } catch (e2) {
+            console.warn('merge failed:', e2)
+            alert('Merge failed: ' + (e2?.message || 'unknown error'))
+          }
+        }
+      } else {
+        alert('That didn’t save: ' + (e?.message || 'unknown error'))
+      }
+    } finally {
+      setSaveBusy(false)
+    }
   }
 
   const [comments, setComments] = useState([])

@@ -93,8 +93,29 @@ export async function adminUpdateSpot(spotId, patch) {
   }
   if (row.name) row.name_key = norm(row.name)
   const { data, error } = await supabase.from('spots').update(row).eq('id', spotId).select().single()
-  if (error) throw error
+  if (error) {
+    // Renaming into a name_key that another spot already holds means these two
+    // rows are duplicates of the same real place. Look up that other spot so the
+    // caller can offer a merge instead of a raw constraint-violation message.
+    if (error.code === '23505' && row.name_key) {
+      const { data: dupe } = await supabase.from('spots').select('id,name').eq('name_key', row.name_key).neq('id', spotId).maybeSingle()
+      if (dupe) {
+        const dupErr = new Error(`"${dupe.name}" already exists as a separate spot`)
+        dupErr.duplicateSpot = dupe
+        throw dupErr
+      }
+    }
+    throw error
+  }
   return data
+}
+
+// Merge a duplicate spot into the one being kept: moves its photos, wishlist/been-there
+// entries, and comments over, then removes the duplicate row. Admin-only (enforced in
+// the RPC itself, not just client-side).
+export async function mergeSpots(keepId, removeId) {
+  const { error } = await supabase.rpc('merge_spots', { p_keep_id: keepId, p_remove_id: removeId })
+  if (error) throw error
 }
 // Soft-delete: mark deleted_at instead of hard-deleting so admin can restore.
 // If deleted_at column isn't present (trash migration not run), falls back to
