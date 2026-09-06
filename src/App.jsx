@@ -14,6 +14,18 @@ import {
 import CropEditor from './CropEditor'
 
 const CHI = [41.8781, -87.6298]
+const CHI_FIT_RADIUS_MI = 75 // outlier pins (e.g. a single NY spot) shouldn't zoom the map out past Chicago
+
+// Straight-line miles between two [lat,lng] points — good enough to decide whether
+// a pin counts as "near Chicago" for the purposes of the default map fit.
+function milesBetween([lat1, lng1], [lat2, lng2]) {
+  const R = 3958.8
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
 
 // Fetch a published photo into a canvas so it can go through the same CropEditor
 // as freshly-uploaded matchbooks. Same-origin isn't required (Supabase storage sets
@@ -140,8 +152,11 @@ export default function App() {
   /* ----- boot ----- */
   useEffect(() => {
     const map = L.map(mapEl.current, { scrollWheelZoom: false, zoomSnap: 1 }).setView(CHI, 12)
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      subdomains: 'abcd', maxZoom: 20, attribution: '© OpenStreetMap © CARTO',
+    // CARTO's free raster basemaps started requiring an API key in August 2026 —
+    // without one they render with an "API KEY REQUIRED" watermark. OSM's standard
+    // tiles need no key at all.
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      subdomains: 'abc', maxZoom: 19, attribution: '© OpenStreetMap contributors',
     }).addTo(map)
     layerRef.current = L.layerGroup().addTo(map)
 
@@ -340,10 +355,15 @@ export default function App() {
       layer.addLayer(m); ms.push(m)
     })
     if (ms.length) {
+      // Fit to pins near Chicago only, so a single far-off outlier (e.g. the one NY
+      // spot) can't zoom the default view out to fit the whole country.
+      const core = ms.filter((m) => milesBetween(CHI, [m.getLatLng().lat, m.getLatLng().lng]) <= CHI_FIT_RADIUS_MI)
+      const fitSet = core.length ? core : ms
+
       // Small sets (e.g. one neighborhood, or just a couple pins) get names right away and a
       // gentler max zoom so 1-2 spots don't snap in to a jarring street-level close-up.
-      showLabelsNowRef.current = ms.length <= 15
-      map.fitBounds(L.featureGroup(ms).getBounds().pad(0.3), { animate: false, maxZoom: 16 })
+      showLabelsNowRef.current = fitSet.length <= 15
+      map.fitBounds(L.featureGroup(fitSet).getBounds().pad(0.3), { animate: false, maxZoom: 16 })
       baseZoomRef.current = map.getZoom()
     }
     map._updateLabels?.()
