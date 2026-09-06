@@ -15,6 +15,7 @@ import CropEditor from './CropEditor'
 
 const CHI = [41.8781, -87.6298]
 const CHI_FIT_RADIUS_MI = 75 // outlier pins (e.g. a single NY spot) shouldn't zoom the map out past Chicago
+const MIN_FIT_ZOOM = 11 // don't let a spread-out pin set zoom further out than "all of Chicago proper"
 
 // Straight-line miles between two [lat,lng] points — good enough to decide whether
 // a pin counts as "near Chicago" for the purposes of the default map fit.
@@ -153,10 +154,10 @@ export default function App() {
   useEffect(() => {
     const map = L.map(mapEl.current, { scrollWheelZoom: false, zoomSnap: 1 }).setView(CHI, 12)
     // CARTO's free raster basemaps started requiring an API key in August 2026 —
-    // without one they render with an "API KEY REQUIRED" watermark. OSM's standard
-    // tiles need no key at all.
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      subdomains: 'abc', maxZoom: 19, attribution: '© OpenStreetMap contributors',
+    // without one they render with an "API KEY REQUIRED" watermark. Esri's Light Gray
+    // Canvas is free, keyless, and close to that same minimalist look.
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 16, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
     }).addTo(map)
     layerRef.current = L.layerGroup().addTo(map)
 
@@ -363,7 +364,8 @@ export default function App() {
       // Small sets (e.g. one neighborhood, or just a couple pins) get names right away and a
       // gentler max zoom so 1-2 spots don't snap in to a jarring street-level close-up.
       showLabelsNowRef.current = fitSet.length <= 15
-      map.fitBounds(L.featureGroup(fitSet).getBounds().pad(0.3), { animate: false, maxZoom: 16 })
+      map.fitBounds(L.featureGroup(fitSet).getBounds().pad(0.2), { animate: false, maxZoom: 16 })
+      if (map.getZoom() < MIN_FIT_ZOOM) map.setZoom(MIN_FIT_ZOOM)
       baseZoomRef.current = map.getZoom()
     }
     map._updateLabels?.()
