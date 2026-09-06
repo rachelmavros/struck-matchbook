@@ -101,6 +101,17 @@ export async function adminDeleteSpot(spotId) {
   if (error) throw error
 }
 
+// Admin-only: replace an existing photo in place by uploading a new file, linking it
+// to the same spot, and removing the old one. Used by the "re-crop existing photo"
+// flow so re-cropping doesn't leave dead storage objects behind.
+export async function adminReplacePhoto({ oldPhotoId, oldStoragePath, spotId, newFile, userId }) {
+  const up = await uploadPhoto(newFile, userId)
+  const inserted = await insertPhoto({ path: up.path, publicUrl: up.publicUrl, userId })
+  await linkSpotPhoto(spotId, inserted.id)
+  await adminDeletePhoto(oldPhotoId, oldStoragePath)
+  return inserted
+}
+
 // Admin-only: remove a single photo from a spot's gallery (storage object + row).
 // The spot itself is untouched — spot_photos.photo_id cascades on delete.
 export async function adminDeletePhoto(photoId, storagePath) {

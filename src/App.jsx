@@ -6,13 +6,33 @@ import {
 } from './lib/vision'
 import {
   readMatchbooksImage, searchPlaces, uploadPhoto, insertPhoto,
-  upsertSpot, linkSpotPhoto, adminUpdateSpot, adminDeleteSpot, adminDeletePhoto, loadSpots,
+  upsertSpot, linkSpotPhoto, adminUpdateSpot, adminDeleteSpot, adminDeletePhoto, adminReplacePhoto, loadSpots,
   loadUserLists, setUserList, loadFavoriteCounts, loadComments, addComment, deleteComment,
   loadMySubmissions, approveSpot, updateOwnSpot, norm,
 } from './lib/api'
 import CropEditor from './CropEditor'
 
 const CHI = [41.8781, -87.6298]
+
+// Fetch a published photo into a canvas so it can go through the same CropEditor
+// as freshly-uploaded matchbooks. Same-origin isn't required (Supabase storage sets
+// permissive CORS on public buckets), but crossOrigin has to be set before src or
+// canvas will be tainted and toBlob will throw.
+function urlToCanvas(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth; c.height = img.naturalHeight
+      c.getContext('2d').drawImage(img, 0, 0)
+      resolve(c)
+    }
+    img.onerror = () => reject(new Error('failed to load ' + url))
+    img.src = url
+  })
+}
+
 const TYPES = ['bar', 'restaurant', 'coffee_shop', 'hotel', 'theater', 'other']
 const TYPE_LABELS = { coffee_shop: 'Coffee Shop', bar: 'Bar', restaurant: 'Restaurant', hotel: 'Hotel', theater: 'Theater', other: 'Other' }
 const typeLabel = (t) => TYPE_LABELS[t] || cap(t)
@@ -412,6 +432,21 @@ export default function App() {
     const cropped = cropNormalized(target.canvas, newBbox)
     const file = await canvasToFile(cropped, 'matchbook.jpg')
     const url = URL.createObjectURL(file)
+    if (target.kind === 'recrop') {
+      try {
+        await adminReplacePhoto({
+          oldPhotoId: target.photoId, oldStoragePath: target.storagePath,
+          spotId: target.spotId, newFile: file, userId: user.id,
+        })
+        await refresh(user?.id)
+      } catch (e) {
+        console.warn('re-crop replace failed:', e)
+        alert('Could not save the re-crop: ' + (e?.message || 'unknown error'))
+      }
+      URL.revokeObjectURL(url)
+      setCropTarget(null)
+      return
+    }
     if (target.kind === 'draft') {
       setReview((r) => r.map((d) => {
         if (d.tempId !== target.id) return d
@@ -426,6 +461,26 @@ export default function App() {
       }))
     }
     setCropTarget(null)
+  }
+
+  // Admin: pull an existing saved photo into a canvas, open the crop editor, and on
+  // confirm upload the cropped version + delete the original.
+  async function handleRecropPhoto(photo) {
+    if (!modalId) return
+    try {
+      const canvas = await urlToCanvas(photo.public_url)
+      setCropTarget({
+        kind: 'recrop',
+        photoId: photo.id,
+        storagePath: photo.storage_path,
+        spotId: modalId,
+        canvas,
+        bbox: [0, 0, 1, 1],
+      })
+    } catch (e) {
+      console.warn('re-crop failed to load photo:', e)
+      alert('Could not load that photo for re-crop.')
+    }
   }
   // A draft is only saveable once it carries real coordinates from a Google place pick.
   const unlocated = review.filter((d) => d.lat == null || d.lng == null)
@@ -699,6 +754,7 @@ export default function App() {
           onAdminSave={async (patch) => { await adminUpdateSpot(modalSpot.id, patch); await refresh(user?.id) }}
           onAdminDelete={async () => { await adminDeleteSpot(modalSpot.id); setModalId(null); await refresh(user?.id) }}
           onAdminDeletePhoto={async (photoId, storagePath) => { await adminDeletePhoto(photoId, storagePath); await refresh(user?.id) }}
+          onAdminRecropPhoto={handleRecropPhoto}
         />
       )}
 
@@ -710,7 +766,8 @@ export default function App() {
   )
 }
 
-function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin, onAdminSave, onAdminDelete, onAdminDeletePhoto }) {
+function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin,
+  onAdminSave, onAdminDelete, onAdminDeletePhoto, onAdminRecropPhoto }) {
   const photos = spot.photos || []
   const meta = shortAddress(spot.address, spot.neighborhood)
   const idx = photos.length ? ((gIndex % photos.length) + photos.length) % photos.length : 0
@@ -789,11 +846,19 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin, onAd
                   <button className="gnav next" onClick={() => setGIndex(idx + 1)}>›</button>
                 </>}
                 <div className="gcount">{idx + 1} / {photos.length}</div>
+                {photos[idx].created_at && (
+                  <div className="gdate" title="Date added">
+                    Added {new Date(photos[idx].created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                  </div>
+                )}
                 {isAdmin && (
-                  <button className="gdelete" title="Delete this photo"
-                    onClick={() => { if (confirm('Delete this photo? This can’t be undone.')) onAdminDeletePhoto(photos[idx].id, photos[idx].storage_path) }}>
-                    Delete photo
-                  </button>
+                  <div className="gadmin">
+                    <button className="grecrop" title="Re-crop this photo" onClick={() => onAdminRecropPhoto(photos[idx])}>Re-crop</button>
+                    <button className="gdelete" title="Delete this photo"
+                      onClick={() => { if (confirm('Delete this photo? This can’t be undone.')) onAdminDeletePhoto(photos[idx].id, photos[idx].storage_path) }}>
+                      Delete photo
+                    </button>
+                  </div>
                 )}
               </>}
         </div>
