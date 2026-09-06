@@ -96,7 +96,26 @@ export async function adminUpdateSpot(spotId, patch) {
   if (error) throw error
   return data
 }
+// Soft-delete: mark deleted_at instead of hard-deleting so admin can restore.
+// If deleted_at column isn't present (trash migration not run), falls back to
+// a real delete so nothing breaks.
 export async function adminDeleteSpot(spotId) {
+  const { error } = await supabase.from('spots').update({ deleted_at: new Date().toISOString() }).eq('id', spotId)
+  if (!error) return
+  if (/deleted_at/i.test(error.message)) {
+    const fb = await supabase.from('spots').delete().eq('id', spotId)
+    if (fb.error) throw fb.error
+    return
+  }
+  throw error
+}
+
+export async function adminRestoreSpot(spotId) {
+  const { error } = await supabase.from('spots').update({ deleted_at: null }).eq('id', spotId)
+  if (error) throw error
+}
+
+export async function adminPurgeSpot(spotId) {
   const { error } = await supabase.from('spots').delete().eq('id', spotId)
   if (error) throw error
 }
@@ -112,15 +131,42 @@ export async function adminReplacePhoto({ oldPhotoId, oldStoragePath, spotId, ne
   return inserted
 }
 
-// Admin-only: remove a single photo from a spot's gallery (storage object + row).
-// The spot itself is untouched — spot_photos.photo_id cascades on delete.
-export async function adminDeletePhoto(photoId, storagePath) {
+// Soft-delete: keeps storage intact so restore stays possible; purge is what
+// actually removes the storage object.
+export async function adminDeletePhoto(photoId /*, storagePath */) {
+  const { error } = await supabase.from('photos').update({ deleted_at: new Date().toISOString() }).eq('id', photoId)
+  if (!error) return
+  if (/deleted_at/i.test(error.message)) {
+    const fb = await supabase.from('photos').delete().eq('id', photoId)
+    if (fb.error) throw fb.error
+    return
+  }
+  throw error
+}
+
+export async function adminRestorePhoto(photoId) {
+  const { error } = await supabase.from('photos').update({ deleted_at: null }).eq('id', photoId)
+  if (error) throw error
+}
+
+export async function adminPurgePhoto(photoId, storagePath) {
   if (storagePath) {
     const { error: sErr } = await supabase.storage.from(BUCKET).remove([storagePath])
     if (sErr) console.warn('storage remove failed:', sErr.message)
   }
   const { error } = await supabase.from('photos').delete().eq('id', photoId)
   if (error) throw error
+}
+
+// Load trashed spots + photos for the admin Trash view. RLS restricts SELECT
+// to admins; the filter narrows to rows that are soft-deleted.
+export async function loadTrash() {
+  const trashCols = SPOT_COLS + ',approved,submitted_by,deleted_at'
+  const spots = await supabase.from('spots').select(trashCols).not('deleted_at', 'is', null).order('deleted_at', { ascending: false })
+  const photos = await supabase.from('photos').select('id,public_url,storage_path,created_at,deleted_at').not('deleted_at', 'is', null).order('deleted_at', { ascending: false })
+  if (spots.error && !/deleted_at/i.test(spots.error.message)) throw spots.error
+  if (photos.error && !/deleted_at/i.test(photos.error.message)) throw photos.error
+  return { spots: spots.data || [], photos: photos.data || [] }
 }
 
 const PHOTO_COLS = 'spot_photos(photos(id,public_url,storage_path,created_at))'
@@ -135,6 +181,7 @@ export async function loadSpots() {
   let { data, error } = await supabase
     .from('spots')
     .select(`${SPOT_COLS},approved,submitted_by,${PHOTO_COLS}`)
+    .is('deleted_at', null)
 
   if (error) {
     console.warn('spots query failed, retrying without moderation columns:', error.message)

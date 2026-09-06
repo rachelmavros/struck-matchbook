@@ -6,7 +6,8 @@ import {
 } from './lib/vision'
 import {
   readMatchbooksImage, searchPlaces, uploadPhoto, insertPhoto,
-  upsertSpot, linkSpotPhoto, adminUpdateSpot, adminDeleteSpot, adminDeletePhoto, adminReplacePhoto, loadSpots,
+  upsertSpot, linkSpotPhoto, adminUpdateSpot, adminDeleteSpot, adminDeletePhoto, adminReplacePhoto,
+  adminRestoreSpot, adminPurgeSpot, adminRestorePhoto, adminPurgePhoto, loadTrash, loadSpots,
   loadUserLists, setUserList, loadFavoriteCounts, loadComments, addComment, deleteComment,
   loadMySubmissions, approveSpot, updateOwnSpot, norm,
 } from './lib/api'
@@ -126,7 +127,8 @@ export default function App() {
   const [staged, setStaged] = useState(null)
   const [modalId, setModalId] = useState(null)
   const [gIndex, setGIndex] = useState(0)
-  const [cropTarget, setCropTarget] = useState(null) // { kind: 'draft'|'pending', id, canvas, bbox }
+  const [cropTarget, setCropTarget] = useState(null) // { kind: 'draft'|'pending'|'recrop', id, canvas, bbox }
+  const [trash, setTrash] = useState({ spots: [], photos: [] })
 
   const mapEl = useRef(null)
   const mapRef = useRef(null)
@@ -297,7 +299,8 @@ export default function App() {
 
   useEffect(() => {
     if (accountOpen && user) loadMySubmissions(user.id).then(setMySubs)
-  }, [accountOpen, user])
+    if (accountOpen && profile?.is_admin) loadTrash().then(setTrash).catch((e) => console.warn('trash load failed:', e))
+  }, [accountOpen, user, profile])
 
   const hoods = useMemo(
     () => [...new Set(enriched.map((s) => hoodLabel(s.neighborhood)).filter(Boolean))].sort(),
@@ -553,7 +556,23 @@ export default function App() {
     if (user) await setUserList(user.id, spotId, { [key]: next[key] })
   }
 
-  const modalSpot = enriched.find((s) => s.id === modalId) || null
+  async function reloadTrash() {
+    if (profile?.is_admin) {
+      try { setTrash(await loadTrash()) } catch (e) { console.warn('trash reload:', e) }
+    }
+  }
+  async function handleRestoreSpot(id) { await adminRestoreSpot(id); await refresh(user?.id); await reloadTrash() }
+  async function handlePurgeSpot(id) {
+    if (!confirm('Permanently delete this spot and all its photos? Cannot be undone.')) return
+    await adminPurgeSpot(id); await reloadTrash()
+  }
+  async function handleRestorePhoto(id) { await adminRestorePhoto(id); await refresh(user?.id); await reloadTrash() }
+  async function handlePurgePhoto(id, storagePath) {
+    if (!confirm('Permanently delete this photo? Cannot be undone.')) return
+    await adminPurgePhoto(id, storagePath); await reloadTrash()
+  }
+
+    const modalSpot = enriched.find((s) => s.id === modalId) || null
 
   return (
     <div className="wrap">
@@ -737,6 +756,9 @@ export default function App() {
           onSignOut={handleSignOut}
           onClose={() => setAccountOpen(false)}
           mySubs={mySubs} enriched={enriched} favCounts={favCounts}
+          trash={trash}
+          onRestoreSpot={handleRestoreSpot} onPurgeSpot={handlePurgeSpot}
+          onRestorePhoto={handleRestorePhoto} onPurgePhoto={handlePurgePhoto}
           onToggle={toggle}
           onOpenSpot={(id) => { setAccountOpen(false); setModalId(id); setGIndex(0) }}
           isAdmin={!!profile?.is_admin}
@@ -1060,7 +1082,9 @@ function RecoveryForm({ authStatus, onSubmit, onCancel }) {
 function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
   authPassword, setAuthPassword, onSend, onPasswordSignIn,
   onSignUp, onPasswordReset, recoveryOpen, onSetNewPassword, onSignOut,
-  onClose, mySubs, enriched, favCounts, onToggle, onOpenSpot,
+  onClose, mySubs, enriched, favCounts, trash,
+  onRestoreSpot, onPurgeSpot, onRestorePhoto, onPurgePhoto,
+  onToggle, onOpenSpot,
   isAdmin, onApprove, onAdminSaveSpot, onOwnSaveSpot, onDeleteSpot }) {
   const [mode, setMode] = useState('password') // signed-out: 'password' | 'link'
   const [tab, setTab] = useState(isAdmin ? 'queue' : 'subs')
@@ -1139,6 +1163,11 @@ function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
                   Pending{queue.length ? ` (${queue.length})` : ''}
                 </button>
               )}
+              {isAdmin && (
+                <button className={'atab' + (tab === 'trash' ? ' on' : '')} onClick={() => setTab('trash')}>
+                  Trash{(trash?.spots?.length || 0) + (trash?.photos?.length || 0) > 0 ? ` (${trash.spots.length + trash.photos.length})` : ''}
+                </button>
+              )}
               <button className={'atab' + (tab === 'subs' ? ' on' : '')} onClick={() => setTab('subs')}>Mine</button>
               <button className={'atab' + (tab === 'wishlist' ? ' on' : '')} onClick={() => setTab('wishlist')}>♥ Wishlist</button>
               <button className={'atab' + (tab === 'visited' ? ' on' : '')} onClick={() => setTab('visited')}>✓ Been</button>
@@ -1182,7 +1211,45 @@ function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
                         ))}
                       </>
               )}
-              {tab === 'wishlist' && (
+              {tab === 'trash' && (
+                (!trash?.spots?.length && !trash?.photos?.length)
+                  ? <div className="hint-sm">Trash is empty. Anything you delete lands here and can be restored.</div>
+                  : <>
+                      {trash.spots.length > 0 && <div className="stage-h">Spots ({trash.spots.length})</div>}
+                      {trash.spots.map((s) => (
+                        <div className="acct-spot" key={s.id}>
+                          <div className="top">
+                            <div className="grow">
+                              <div className="nm">{s.name}</div>
+                              <div className="meta">
+                                <span className={'tag ' + s.type}>{typeLabel(s.type)}</span>
+                                {hoodLabel(s.neighborhood)}
+                                {s.deleted_at && ` · deleted ${new Date(s.deleted_at).toLocaleDateString()}`}
+                              </div>
+                            </div>
+                            <div className="acts">
+                              <button className="ghost" onClick={() => onRestoreSpot(s.id)}>Restore</button>
+                              <button className="ghost danger" onClick={() => onPurgeSpot(s.id)}>Purge</button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {trash.photos.length > 0 && <div className="stage-h" style={{ marginTop: 12 }}>Photos ({trash.photos.length})</div>}
+                      {trash.photos.map((p) => (
+                        <div className="subcard" key={p.id}>
+                          <img className="thumb" src={p.public_url} alt="" />
+                          <div className="grow">
+                            <div className="meta">Deleted {new Date(p.deleted_at).toLocaleDateString()}</div>
+                            <div className="acts" style={{ marginTop: 6 }}>
+                              <button className="ghost" onClick={() => onRestorePhoto(p.id)}>Restore</button>
+                              <button className="ghost danger" onClick={() => onPurgePhoto(p.id, p.storage_path)}>Purge</button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+              )}
+                            {tab === 'wishlist' && (
                 wishlist.length === 0 ? <div className="hint-sm">Nothing on your wishlist yet — tap ♥ on a spot to add it.</div>
                   : wishlist.map((s) => <AcctSpotRow key={s.id} s={s} favCounts={favCounts} onToggle={onToggle} onOpenSpot={onOpenSpot} />)
               )}
