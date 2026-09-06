@@ -153,6 +153,18 @@ export default function App() {
   /* ----- boot ----- */
   useEffect(() => {
     const map = L.map(mapEl.current, { scrollWheelZoom: false, zoomSnap: 1 }).setView(CHI, 12)
+
+    // Trackpad pinch gestures arrive as wheel events with ctrlKey set (this is how
+    // Chrome/Safari/Firefox all report pinch-zoom) — zoom on those, but leave plain
+    // two-finger scroll alone so it scrolls the page instead of getting captured here.
+    const onPinch = (e) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      const point = map.mouseEventToContainerPoint(e)
+      const latlng = map.containerPointToLatLng(point)
+      map.setZoomAround(latlng, map.getZoom() + (e.deltaY > 0 ? -0.5 : 0.5))
+    }
+    mapEl.current.addEventListener('wheel', onPinch, { passive: false })
     // CARTO's free raster basemaps started requiring an API key in August 2026 —
     // without one they render with an "API KEY REQUIRED" watermark. Esri's Light Gray
     // Canvas is free, keyless, and close to that same minimalist look.
@@ -194,7 +206,7 @@ export default function App() {
       if (isRecovery) { setAccountOpen(true); setRecoveryOpen(true) }
       await refresh(u?.id)
     })()
-    return () => { authSub?.subscription?.unsubscribe?.(); map.remove() }
+    return () => { authSub?.subscription?.unsubscribe?.(); mapEl.current?.removeEventListener('wheel', onPinch); map.remove() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -342,7 +354,7 @@ export default function App() {
     const ms = []
     visible.forEach((s) => {
       if (s.lat == null || s.lng == null) return
-      const cls = s.wishlist ? 'wish' : (s.approx ? 'approx' : '')
+      const cls = s.wishlist ? 'wish' : (s.approx ? 'approx' : `type-${s.type}`)
       const icon = L.divIcon({ className: '', html: `<div class="pin ${cls}"></div>`, iconSize: [16, 16], iconAnchor: [8, 16] })
       const m = L.marker([s.lat, s.lng], { icon })
       const meta = shortAddress(s.address, s.neighborhood)

@@ -102,6 +102,14 @@ select{width:100%;margin-top:4px;font-family:'Spectral';font-size:13px;padding:7
 .pin{width:16px;height:16px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fbf6ea;box-shadow:0 1px 4px rgba(0,0,0,.4);background:var(--red)}
 .pin.approx{background:var(--ember)}
 .pin.wish{background:var(--gold)}
+/* type color-coding — reuses the same accent colors as the .tag chips in the list,
+   so a pin's color matches what you'd see next to that spot's name */
+.pin.type-bar{background:#8a6a1e}
+.pin.type-restaurant{background:var(--sage)}
+.pin.type-coffee_shop{background:#6b4a2e}
+.pin.type-hotel{background:#42506b}
+.pin.type-theater{background:#7a3d66}
+.pin.type-other{background:#7a6b4d}
 
 .overlay{position:fixed;inset:0;background:rgba(28,23,18,.6);display:flex;align-items:center;justify-content:center;padding:20px;z-index:1000}
 .modal{background:#fbf6ea;border-radius:12px;max-width:560px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.4)}
