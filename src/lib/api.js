@@ -88,7 +88,7 @@ export async function linkSpotPhoto(spotId, photoId) {
 // updates/deletes, so these will silently no-op (or error) for non-admins even if called.
 export async function adminUpdateSpot(spotId, patch) {
   const row = {}
-  for (const k of ['name', 'address', 'neighborhood', 'type', 'status']) {
+  for (const k of ['name', 'address', 'neighborhood', 'type', 'status', 'lat', 'lng']) {
     if (patch[k] !== undefined) row[k] = patch[k]
   }
   if (row.name) row.name_key = norm(row.name)
@@ -210,7 +210,7 @@ export async function approveSpot(spotId) {
 // editing an already-approved spot sends it back to the review queue.
 export async function updateOwnSpot(spotId, patch) {
   const row = { approved: false }
-  for (const k of ['name', 'address', 'neighborhood', 'type', 'status']) {
+  for (const k of ['name', 'address', 'neighborhood', 'type', 'status', 'lat', 'lng']) {
     if (patch[k] !== undefined) row[k] = patch[k]
   }
   if (row.name) row.name_key = norm(row.name)

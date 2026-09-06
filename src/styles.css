@@ -244,3 +244,6 @@ footer{margin-top:26px;font-size:12.5px;color:#8a7c63;line-height:1.6}
 .grecrop{border:none;background:rgba(232,99,31,.9);color:#fff;font-family:'Oswald';font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:6px 10px;border-radius:5px;cursor:pointer}
 .grecrop:hover{background:var(--ember)}
 .gadmin .gdelete{position:static}
+
+.namefield{position:relative}
+.namesuggest{position:absolute;z-index:20;left:0;right:0;top:100%;background:#fffdf7;border:1px solid var(--stock-dk);border-radius:6px;margin-top:2px;max-height:220px;overflow:auto;box-shadow:0 4px 10px rgba(0,0,0,.15)}

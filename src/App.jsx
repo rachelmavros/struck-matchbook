@@ -561,15 +561,23 @@ export default function App() {
       try { setTrash(await loadTrash()) } catch (e) { console.warn('trash reload:', e) }
     }
   }
-  async function handleRestoreSpot(id) { await adminRestoreSpot(id); await refresh(user?.id); await reloadTrash() }
+  async function handleRestoreSpot(id) {
+    try { await adminRestoreSpot(id); await refresh(user?.id); await reloadTrash() }
+    catch (e) { console.warn('restore spot failed:', e); alert('Could not restore: ' + (e?.message || 'unknown error')) }
+  }
   async function handlePurgeSpot(id) {
     if (!confirm('Permanently delete this spot and all its photos? Cannot be undone.')) return
-    await adminPurgeSpot(id); await reloadTrash()
+    try { await adminPurgeSpot(id); await reloadTrash() }
+    catch (e) { console.warn('purge spot failed:', e); alert('Could not purge: ' + (e?.message || 'unknown error')) }
   }
-  async function handleRestorePhoto(id) { await adminRestorePhoto(id); await refresh(user?.id); await reloadTrash() }
+  async function handleRestorePhoto(id) {
+    try { await adminRestorePhoto(id); await refresh(user?.id); await reloadTrash() }
+    catch (e) { console.warn('restore photo failed:', e); alert('Could not restore: ' + (e?.message || 'unknown error')) }
+  }
   async function handlePurgePhoto(id, storagePath) {
     if (!confirm('Permanently delete this photo? Cannot be undone.')) return
-    await adminPurgePhoto(id, storagePath); await reloadTrash()
+    try { await adminPurgePhoto(id, storagePath); await reloadTrash() }
+    catch (e) { console.warn('purge photo failed:', e); alert('Could not purge — this usually means the admin-photo-delete migration hasn’t been run yet. (' + (e?.message || 'unknown error') + ')') }
   }
 
     const modalSpot = enriched.find((s) => s.id === modalId) || null
@@ -799,11 +807,20 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin,
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(null)
   useEffect(() => { setEditing(false); setDraft(null) }, [spot.id])
+  const [saveBusy, setSaveBusy] = useState(false)
   function startEdit() {
-    setDraft({ name: spot.name, address: spot.address || '', neighborhood: spot.neighborhood || '', type: spot.type, status: spot.status || 'unknown' })
+    setDraft({
+      name: spot.name, address: spot.address || '', neighborhood: spot.neighborhood || '',
+      type: spot.type, status: spot.status || 'unknown', lat: spot.lat, lng: spot.lng,
+    })
     setEditing(true)
   }
-  async function saveEdit() { await onAdminSave(draft); setEditing(false) }
+  async function saveEdit() {
+    setSaveBusy(true)
+    try { await onAdminSave(draft); setEditing(false) }
+    catch (e) { console.warn('save failed:', e); alert('That didn’t save: ' + (e?.message || 'unknown error')) }
+    finally { setSaveBusy(false) }
+  }
 
   const [comments, setComments] = useState([])
   const [commentText, setCommentText] = useState('')
@@ -832,7 +849,7 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin,
             </>
           ) : (
             <div className="admin-form">
-              <label>Name<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+              <NameSearchField draft={draft} setDraft={setDraft} />
               <label>Address<input value={draft.address} onChange={(e) => setDraft({ ...draft, address: e.target.value })} /></label>
               <label>Neighborhood<input value={draft.neighborhood} onChange={(e) => setDraft({ ...draft, neighborhood: e.target.value })} /></label>
               <div className="admin-row">
@@ -850,7 +867,7 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin,
                 </label>
               </div>
               <div className="admin-row">
-                <button className="go save" onClick={saveEdit}>Save changes</button>
+                <button className="go save" disabled={saveBusy} onClick={saveEdit}>{saveBusy ? 'Saving…' : 'Save changes'}</button>
                 <button className="ghost" onClick={() => setEditing(false)}>Cancel</button>
                 <button className="ghost danger" onClick={() => { if (confirm('Delete this spot entirely? This can’t be undone.')) onAdminDelete() }}>Delete spot</button>
               </div>
@@ -965,6 +982,54 @@ function AcctSpotRow({ s, favCounts, onToggle, onOpenSpot }) {
   )
 }
 
+// Live Google-Places-backed suggestions for a Name field in an edit form. Picking a
+// suggestion fills in address/neighborhood/type/lat/lng too — this is also what makes
+// "renaming" a spot able to actually move its pin, since a plain-text address edit
+// alone never had coordinates to change it with.
+function NameSearchField({ draft, setDraft }) {
+  const [candidates, setCandidates] = useState([])
+  const [open, setOpen] = useState(false)
+  const timer = useRef(null)
+
+  function onChange(v) {
+    setDraft((d) => ({ ...d, name: v }))
+    clearTimeout(timer.current)
+    if (!v.trim()) { setCandidates([]); return }
+    timer.current = setTimeout(async () => {
+      const res = await searchPlaces(v)
+      setCandidates(res)
+      setOpen(true)
+    }, 350)
+  }
+  function pick(c) {
+    setDraft((d) => ({
+      ...d,
+      name: c.name, address: c.address || d.address, neighborhood: c.neighborhood || d.neighborhood,
+      type: c.type || d.type, lat: c.lat ?? d.lat, lng: c.lng ?? d.lng,
+    }))
+    setCandidates([])
+    setOpen(false)
+  }
+
+  return (
+    <label className="namefield">Name
+      <input value={draft.name}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => candidates.length && setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {open && candidates.length > 0 && (
+        <div className="namesuggest">
+          {candidates.map((c, i) => (
+            <button type="button" key={i} className="cand" onMouseDown={() => pick(c)}>
+              {c.name}<br /><small>{[c.neighborhood, c.address].filter(Boolean).join(' · ')}</small>
+            </button>
+          ))}
+        </div>
+      )}
+    </label>
+  )
+}
+
 // One submitted spot: shows its review status, and (for the submitter or an admin)
 // an inline edit form. A non-admin editing an approved spot sends it back to review.
 function SubmissionRow({ s, canEdit, admin, onOpenSpot, onApprove, onSave, onDelete }) {
@@ -975,7 +1040,7 @@ function SubmissionRow({ s, canEdit, admin, onOpenSpot, onApprove, onSave, onDel
   function startEdit() {
     setDraft({
       name: s.name, address: s.address || '', neighborhood: s.neighborhood || '',
-      type: s.type, status: s.status || 'unknown',
+      type: s.type, status: s.status || 'unknown', lat: s.lat, lng: s.lng,
     })
     setEditing(true)
   }
@@ -1019,7 +1084,7 @@ function SubmissionRow({ s, canEdit, admin, onOpenSpot, onApprove, onSave, onDel
 
       {editing && (
         <div className="admin-form">
-          <label>Name<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+          <NameSearchField draft={draft} setDraft={setDraft} />
           <label>Address<input value={draft.address} onChange={(e) => setDraft({ ...draft, address: e.target.value })} /></label>
           <label>Neighborhood<input value={draft.neighborhood} onChange={(e) => setDraft({ ...draft, neighborhood: e.target.value })} /></label>
           <div className="admin-row">
