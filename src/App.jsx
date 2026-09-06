@@ -154,17 +154,19 @@ export default function App() {
   useEffect(() => {
     const map = L.map(mapEl.current, { scrollWheelZoom: false, zoomSnap: 1 }).setView(CHI, 12)
 
-    // Trackpad pinch gestures arrive as wheel events with ctrlKey set (this is how
-    // Chrome/Safari/Firefox all report pinch-zoom) — zoom on those, but leave plain
-    // two-finger scroll alone so it scrolls the page instead of getting captured here.
-    const onPinch = (e) => {
+    // Trackpad pinch and scroll-wheel zoom. deltaY direction: negative = zoom in,
+    // positive = zoom out (matches natural scroll direction). The map is scrollWheelZoom
+    // false so page scrolls outside the map aren't captured; only zooms when the cursor
+    // is over the map element.
+    const onWheel = (e) => {
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
       const point = map.mouseEventToContainerPoint(e)
       const latlng = map.containerPointToLatLng(point)
-      map.setZoomAround(latlng, map.getZoom() + (e.deltaY > 0 ? -0.5 : 0.5))
+      const zoomDelta = (e.deltaY < 0 ? 1 : -1) * 0.5
+      map.setZoomAround(latlng, map.getZoom() + zoomDelta)
     }
-    mapEl.current.addEventListener('wheel', onPinch, { passive: false })
+    mapEl.current.addEventListener('wheel', onWheel, { passive: false })
     // CARTO's free raster basemaps started requiring an API key in August 2026 —
     // without one they render with an "API KEY REQUIRED" watermark. Esri's Light Gray
     // Canvas is free, keyless, and close to that same minimalist look.
@@ -206,7 +208,7 @@ export default function App() {
       if (isRecovery) { setAccountOpen(true); setRecoveryOpen(true) }
       await refresh(u?.id)
     })()
-    return () => { authSub?.subscription?.unsubscribe?.(); mapEl.current?.removeEventListener('wheel', onPinch); map.remove() }
+    return () => { authSub?.subscription?.unsubscribe?.(); mapEl.current?.removeEventListener('wheel', onWheel); map.remove() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
