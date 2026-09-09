@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
+import 'leaflet.markercluster'
+import 'leaflet.markercluster/dist/MarkerCluster.css'
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import { ensureUser, ensureProfile, sendMagicLink, signInWithPassword, signUpWithPassword, sendPasswordReset, updatePassword, signOut, supabase } from './lib/supabase'
 import {
   loadFileToCanvas, canvasToBase64, cropNormalized, tileRects, isValidBbox, canvasToFile,
@@ -144,6 +147,7 @@ export default function App() {
   const [trash, setTrash] = useState({ spots: [], photos: [] })
 
   const mapEl = useRef(null)
+  const browseRef = useRef(null)
   const mapRef = useRef(null)
   const layerRef = useRef(null)
   const timers = useRef({})
@@ -155,7 +159,10 @@ export default function App() {
     // scrollWheelZoom: true covers both a plain desktop mouse wheel and trackpad
     // pinch/scroll — Leaflet already special-cases ctrl+wheel (how browsers report
     // trackpad pinch) internally for smooth zoom, so there's no need to hand-roll it.
-    const map = L.map(mapEl.current, { scrollWheelZoom: true, zoomSnap: 0.25 }).setView(CHI, 12)
+    const map = L.map(mapEl.current, {
+      scrollWheelZoom: true, zoomSnap: 0.25,
+      wheelPxPerZoomLevel: 30, // lower = more zoom per scroll/pinch amount (Leaflet default is 60)
+    }).setView(CHI, 12)
 
     // CARTO's free raster basemaps started requiring an API key in August 2026 —
     // without one they render with an "API KEY REQUIRED" watermark. Esri's Light Gray
@@ -163,7 +170,16 @@ export default function App() {
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 16, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
     }).addTo(map)
-    layerRef.current = L.layerGroup().addTo(map)
+    layerRef.current = L.markerClusterGroup({
+      maxClusterRadius: 45,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      disableClusteringAtZoom: 17, // fully zoomed in: always show individual pins, never a cluster
+      iconCreateFunction: (cluster) => L.divIcon({
+        html: `<div class="cluster-bubble">${cluster.getChildCount()}</div>`,
+        className: '', iconSize: [36, 36],
+      }),
+    }).addTo(map)
 
     const updateLabels = () => {
       // Labels show immediately for a small filtered set (e.g. one neighborhood), otherwise
@@ -317,6 +333,14 @@ export default function App() {
     favorites: favCounts[s.id]?.favorites || 0,
   })), [spots, lists, favCounts])
 
+  const wishCount = useMemo(() => enriched.filter((s) => s.wishlist).length, [enriched])
+  const visitedCount = useMemo(() => enriched.filter((s) => s.visited).length, [enriched])
+
+  function jumpToView(view) {
+    setFilters((f) => ({ ...f, view: f.view === view ? 'all' : view }))
+    browseRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   useEffect(() => {
     if (accountOpen && user) loadMySubmissions(user.id).then(setMySubs)
     if (accountOpen && profile?.is_admin) loadTrash().then(setTrash).catch((e) => console.warn('trash load failed:', e))
@@ -357,8 +381,9 @@ export default function App() {
         `<a class="popbtn poplink" href="${mapsUrl(s.name, s.address)}" target="_blank" rel="noopener">Google Maps ↗</a>`
       )
       m.bindTooltip(s.name, { permanent: true, direction: 'top', offset: [0, -14], className: 'mb-label' })
-      layer.addLayer(m); ms.push(m)
+      ms.push(m)
     })
+    layer.addLayers(ms)
     if (ms.length) {
       // Fit to pins near Chicago only, so a single far-off outlier (e.g. the one NY
       // spot) can't zoom the default view out to fit the whole country.
@@ -626,7 +651,17 @@ export default function App() {
             <div className="match"><div className="stick" /><div className="head flame" /></div>
             <h1>Struck<span className="sub">Chicago matchbook map</span></h1>
           </div>
-          <HeaderAccount profile={profile} onOpen={() => setAccountOpen(true)} onSignOut={handleSignOut} />
+          <div className="headright">
+            <div className="quicklinks">
+              <button className={'qlink' + (filters.view === 'wishlist' ? ' on' : '')} onClick={() => jumpToView('wishlist')}>
+                ♥ Wishlist{wishCount > 0 ? ` (${wishCount})` : ''}
+              </button>
+              <button className={'qlink' + (filters.view === 'visited' ? ' on' : '')} onClick={() => jumpToView('visited')}>
+                ✓ Been{visitedCount > 0 ? ` (${visitedCount})` : ''}
+              </button>
+            </div>
+            <HeaderAccount profile={profile} onOpen={() => setAccountOpen(true)} onSignOut={handleSignOut} />
+          </div>
         </div>
         <p className="lede">Add a photo of a matchbook. It reads the covers, you review the matches, and each spot drops on the map. Dense collages get split into sections and cropped automatically. Can’t read one? Search and pin it yourself.</p>
       </header>
@@ -634,7 +669,68 @@ export default function App() {
       <div className="strip" />
 
       <div className="cols">
-        <div className="panel panel-slot">
+        <div className="panel-slot">
+          <div className="panel" ref={browseRef}>
+            <h2>Browse spots</h2>
+            <div className="viewtabs">
+              {['all', 'wishlist', 'visited'].map((v) => (
+                <button key={v} className={'vtab' + (filters.view === v ? ' on' : '')}
+                  onClick={() => setFilters((f) => ({ ...f, view: v }))}>
+                  {v === 'all' ? 'All' : v === 'wishlist' ? '♥ Wishlist' : '✓ Been'}
+                </button>
+              ))}
+            </div>
+            <div className="typechips">
+              <button className={'chip' + (filters.type === 'all' ? ' on' : '')}
+                onClick={() => setFilters((f) => ({ ...f, type: 'all' }))}>All</button>
+              {TYPES.map((t) => (
+                <button key={t} className={'chip chip-' + t + (filters.type === t ? ' on' : '')}
+                  onClick={() => setFilters((f) => ({ ...f, type: f.type === t ? 'all' : t }))}>
+                  <span className="chip-dot" />{typeLabel(t)}
+                </button>
+              ))}
+            </div>
+            <div className="selrow">
+              <label>Neighborhood
+                <select value={filters.hood} onChange={(e) => setFilters((f) => ({ ...f, hood: e.target.value }))}>
+                  <option value="all">All areas</option>
+                  {hoods.map((h) => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </label>
+            </div>
+
+            {/* ---------- results: map list ---------- */}
+            {enriched.length > 0 && <div className="results-h">{visible.length} spot{visible.length === 1 ? '' : 's'}</div>}
+            {visible.slice().sort((a, b) => a.name.localeCompare(b.name)).map((s) => (
+              <div className="spot" key={s.id}>
+                <div className="top" onClick={() => { setModalId(s.id); setGIndex(0) }}>
+                  {s.photos[0]
+                    ? <img className="thumb" src={s.photos[0].public_url} alt="" />
+                    : <div className="thumb ph" />}
+                  <div className="grow">
+                    <div className="nm">{s.name}</div>
+                    <div className="meta">
+                      <span className={'tag ' + s.type}>{typeLabel(s.type)}</span>
+                      {s.status === 'closed' && <span className="tag closed">closed</span>}
+                      {s.approx && <span className="tag approx">approx</span>}
+                      {shortAddress(s.address, s.neighborhood)}
+                    </div>
+                    <div className="count">{s.photos.length} photo{s.photos.length === 1 ? '' : 's'}{s.favorites > 0 ? ` · ♥ ${s.favorites}` : ''}</div>
+                  </div>
+                  <div className="acts">
+                    <button className={'iact' + (s.wishlist ? ' on-heart' : '')}
+                      onClick={(e) => { e.stopPropagation(); toggle(s.id, 'wishlist') }}>♥</button>
+                    <button className={'iact' + (s.visited ? ' on-check' : '')}
+                      onClick={(e) => { e.stopPropagation(); toggle(s.id, 'visited') }}>✓</button>
+                  </div>
+                </div>
+                <a className="gmlink" href={mapsUrl(s.name, s.address)} target="_blank" rel="noopener"
+                  onClick={(e) => e.stopPropagation()}>Open in Google Maps ↗</a>
+              </div>
+            ))}
+          </div>
+
+          <div className="panel">
           <h2>Add matchbooks</h2>
           <label className={'drop' + (staged ? ' has' : '')}>
             <input type="file" accept="image/*" hidden onChange={onFile} />
@@ -723,61 +819,7 @@ export default function App() {
             </div>
           )}
 
-          {/* ---------- filters ---------- */}
-          <div className="filters">
-            <div className="viewtabs">
-              {['all', 'wishlist', 'visited'].map((v) => (
-                <button key={v} className={'vtab' + (filters.view === v ? ' on' : '')}
-                  onClick={() => setFilters((f) => ({ ...f, view: v }))}>
-                  {v === 'all' ? 'All' : v === 'wishlist' ? '♥ Wishlist' : '✓ Been'}
-                </button>
-              ))}
-            </div>
-            <div className="selrow">
-              <label>Type
-                <select value={filters.type} onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value }))}>
-                  <option value="all">All types</option>
-                  {TYPES.map((t) => <option key={t} value={t}>{typeLabel(t)}</option>)}
-                </select>
-              </label>
-              <label>Neighborhood
-                <select value={filters.hood} onChange={(e) => setFilters((f) => ({ ...f, hood: e.target.value }))}>
-                  <option value="all">All areas</option>
-                  {hoods.map((h) => <option key={h} value={h}>{h}</option>)}
-                </select>
-              </label>
-            </div>
           </div>
-
-          {/* ---------- results: map list ---------- */}
-          {enriched.length > 0 && <div className="results-h">{visible.length} spot{visible.length === 1 ? '' : 's'}</div>}
-          {visible.slice().sort((a, b) => a.name.localeCompare(b.name)).map((s) => (
-            <div className="spot" key={s.id}>
-              <div className="top" onClick={() => { setModalId(s.id); setGIndex(0) }}>
-                {s.photos[0]
-                  ? <img className="thumb" src={s.photos[0].public_url} alt="" />
-                  : <div className="thumb ph" />}
-                <div className="grow">
-                  <div className="nm">{s.name}</div>
-                  <div className="meta">
-                    <span className={'tag ' + s.type}>{typeLabel(s.type)}</span>
-                    {s.status === 'closed' && <span className="tag closed">closed</span>}
-                    {s.approx && <span className="tag approx">approx</span>}
-                    {shortAddress(s.address, s.neighborhood)}
-                  </div>
-                  <div className="count">{s.photos.length} photo{s.photos.length === 1 ? '' : 's'}{s.favorites > 0 ? ` · ♥ ${s.favorites}` : ''}</div>
-                </div>
-                <div className="acts">
-                  <button className={'iact' + (s.wishlist ? ' on-heart' : '')}
-                    onClick={(e) => { e.stopPropagation(); toggle(s.id, 'wishlist') }}>♥</button>
-                  <button className={'iact' + (s.visited ? ' on-check' : '')}
-                    onClick={(e) => { e.stopPropagation(); toggle(s.id, 'visited') }}>✓</button>
-                </div>
-              </div>
-              <a className="gmlink" href={mapsUrl(s.name, s.address)} target="_blank" rel="noopener"
-                onClick={(e) => e.stopPropagation()}>Open in Google Maps ↗</a>
-            </div>
-          ))}
         </div>
 
         <div id="map" className="map-slot" ref={mapEl} />
