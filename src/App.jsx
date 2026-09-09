@@ -152,21 +152,11 @@ export default function App() {
 
   /* ----- boot ----- */
   useEffect(() => {
-    const map = L.map(mapEl.current, { scrollWheelZoom: false, zoomSnap: 1 }).setView(CHI, 12)
+    // scrollWheelZoom: true covers both a plain desktop mouse wheel and trackpad
+    // pinch/scroll — Leaflet already special-cases ctrl+wheel (how browsers report
+    // trackpad pinch) internally for smooth zoom, so there's no need to hand-roll it.
+    const map = L.map(mapEl.current, { scrollWheelZoom: true, zoomSnap: 0.25 }).setView(CHI, 12)
 
-    // Trackpad pinch and scroll-wheel zoom. deltaY direction: negative = zoom in,
-    // positive = zoom out (matches natural scroll direction). The map is scrollWheelZoom
-    // false so page scrolls outside the map aren't captured; only zooms when the cursor
-    // is over the map element.
-    const onWheel = (e) => {
-      if (!e.ctrlKey && !e.metaKey) return
-      e.preventDefault()
-      const point = map.mouseEventToContainerPoint(e)
-      const latlng = map.containerPointToLatLng(point)
-      const zoomDelta = (e.deltaY < 0 ? 1 : -1) * 0.5
-      map.setZoomAround(latlng, map.getZoom() + zoomDelta)
-    }
-    mapEl.current.addEventListener('wheel', onWheel, { passive: false })
     // CARTO's free raster basemaps started requiring an API key in August 2026 —
     // without one they render with an "API KEY REQUIRED" watermark. Esri's Light Gray
     // Canvas is free, keyless, and close to that same minimalist look.
@@ -208,7 +198,7 @@ export default function App() {
       if (isRecovery) { setAccountOpen(true); setRecoveryOpen(true) }
       await refresh(u?.id)
     })()
-    return () => { authSub?.subscription?.unsubscribe?.(); mapEl.current?.removeEventListener('wheel', onWheel); map.remove() }
+    return () => { authSub?.subscription?.unsubscribe?.(); map.remove() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -378,8 +368,18 @@ export default function App() {
       // Small sets (e.g. one neighborhood, or just a couple pins) get names right away and a
       // gentler max zoom so 1-2 spots don't snap in to a jarring street-level close-up.
       showLabelsNowRef.current = fitSet.length <= 15
-      map.fitBounds(L.featureGroup(fitSet).getBounds().pad(0.2), { animate: false, maxZoom: 16 })
-      if (map.getZoom() < MIN_FIT_ZOOM) map.setZoom(MIN_FIT_ZOOM)
+      const bounds = L.featureGroup(fitSet).getBounds().pad(0.2)
+      if (filters.hood === 'all') {
+        // City-wide view: keep the true Chicago center, just pick a zoom that fits the pins.
+        let zoom = map.getBoundsZoom(bounds, false, undefined, undefined)
+        zoom = Math.min(zoom, 16)
+        if (zoom < MIN_FIT_ZOOM) zoom = MIN_FIT_ZOOM
+        map.setView(CHI, zoom, { animate: false })
+      } else {
+        // A specific neighborhood is selected — center on its actual pins instead.
+        map.fitBounds(bounds, { animate: false, maxZoom: 16 })
+        if (map.getZoom() < MIN_FIT_ZOOM) map.setZoom(MIN_FIT_ZOOM)
+      }
       baseZoomRef.current = map.getZoom()
     }
     map._updateLabels?.()
