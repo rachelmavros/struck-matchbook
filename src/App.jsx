@@ -793,6 +793,8 @@ export default function App() {
         Map by Esri. Gold pins are on your wishlist; orange pins are approximate. Zoom in once to see place names on the map.
         <span className="footer-sep"> · </span>
         <a className="footer-link" href="/privacy.html">Privacy Policy</a>
+        <span className="footer-sep"> · </span>
+        <a className="footer-link" href="/terms.html">Terms of Service</a>
       </footer>
 
       <InstallPrompt />
