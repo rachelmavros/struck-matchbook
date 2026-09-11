@@ -155,13 +155,19 @@ export default function App() {
     // scrollWheelZoom: true covers both a plain desktop mouse wheel and trackpad
     // pinch/scroll — Leaflet already special-cases ctrl+wheel (how browsers report
     // trackpad pinch) internally for smooth zoom, so there's no need to hand-roll it.
-    const map = L.map(mapEl.current, { scrollWheelZoom: true, zoomSnap: 0.25 }).setView(CHI, 12)
+    // wheelPxPerZoomLevel lower than Leaflet's default (60) means a bigger zoom jump
+    // per pinch/scroll amount.
+    const map = L.map(mapEl.current, {
+      scrollWheelZoom: true, zoomSnap: 0.25, wheelPxPerZoomLevel: 20, maxZoom: 19,
+    }).setView(CHI, 12)
 
     // CARTO's free raster basemaps started requiring an API key in August 2026 —
     // without one they render with an "API KEY REQUIRED" watermark. Esri's Light Gray
-    // Canvas is free, keyless, and close to that same minimalist look.
+    // Canvas is free, keyless, and close to that same minimalist look. Its own tiles
+    // only go up to zoom 16 (maxNativeZoom) — Leaflet upscales them past that so you
+    // can still zoom in closer to street level, at the cost of a blurrier basemap.
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 16, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
+      maxZoom: 19, maxNativeZoom: 16, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
     }).addTo(map)
     layerRef.current = L.layerGroup().addTo(map)
 
