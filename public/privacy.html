@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Struck</title>
+<style>
+  :root{--ink:#1c1712;--red:#9e1b1f;--stock:#efe6d0;--stock-dk:#e3d7ba;--sage:#5c6b57}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--stock);color:var(--ink);font-family:Georgia,'Spectral',serif;line-height:1.6}
+  .wrap{max-width:720px;margin:0 auto;padding:40px 20px 80px}
+  h1{font-family:'Oswald',Arial,sans-serif;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--red);font-size:28px;margin:0 0 6px}
+  .updated{font-size:13px;color:#6b5d47;margin-bottom:30px}
+  h2{font-family:'Oswald',Arial,sans-serif;font-weight:600;letter-spacing:.04em;text-transform:uppercase;font-size:15px;color:var(--sage);margin:32px 0 10px}
+  p,li{font-size:15.5px;color:#2a231c}
+  ul{padding-left:22px}
+  a{color:var(--red)}
+  .back{display:inline-block;margin-bottom:24px;font-family:'Oswald',Arial,sans-serif;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#6b5d47;text-decoration:none}
+  .back:hover{color:var(--red)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--stock-dk);vertical-align:top}
+  th{font-family:'Oswald',Arial,sans-serif;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--sage)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">&larr; Back to Struck</a>
+  <h1>Privacy Policy</h1>
+  <div class="updated">Last updated September 11, 2026</div>
+
+  <p>Struck ("we," "us," "the app") is a community map of Chicago matchbooks and the places they came from. This page explains what information we collect, why, and how it's handled.</p>
+
+  <h2>What we collect</h2>
+  <table>
+    <tr><th>Data</th><th>Why</th></tr>
+    <tr><td>Email address</td><td>Account sign-in (password or emailed link) and password reset.</td></tr>
+    <tr><td>Password</td><td>Stored as an irreversible hash by our auth provider — we never see or store it in plain text.</td></tr>
+    <tr><td>Photos you upload</td><td>Matchbook cover images, read automatically to identify the place and displayed publicly once approved.</td></tr>
+    <tr><td>Wishlist / been-there marks, comments</td><td>Personalize your experience and are tied to your account.</td></tr>
+    <tr><td>Basic usage data</td><td>Standard web server logs (IP address, browser type) for security and debugging, via our hosting provider.</td></tr>
+  </table>
+  <p>We do not collect payment information, government ID, or precise device location — location data on the map comes from the address you or the matchbook provide, not your device's GPS.</p>
+
+  <h2>Who else sees it</h2>
+  <p>We use a small number of service providers to run the app. Each only receives what it needs to do its job:</p>
+  <ul>
+    <li><strong>Supabase</strong> — hosts our database, file storage, and handles authentication. Your account, photos, and saved lists live here.</li>
+    <li><strong>Anthropic (Claude)</strong> — reads the text on a matchbook photo you upload so we can identify the place. The image is sent for that one-time read and is not used to train Anthropic's models under our agreement with them.</li>
+    <li><strong>Google Places</strong> (or OpenStreetMap, as a fallback) — looks up an address or business name you search or upload against, so we can plot it on the map accurately.</li>
+    <li><strong>Vercel</strong> — hosts the website itself.</li>
+  </ul>
+  <p>We do not sell your data, and we do not share it with anyone else for advertising.</p>
+
+  <h2>What's public</h2>
+  <p>Once a submission is approved, the place name, address, category, and any photos you contributed are visible to everyone using the app — that's the point of a shared map. Your email address is never shown publicly. Comments you post on a spot are visible to other signed-in users.</p>
+
+  <h2>Your choices</h2>
+  <ul>
+    <li>You can edit or delete your own pending submissions before they're approved.</li>
+    <li>You can request that your account and associated data be deleted by contacting us (below).</li>
+    <li>You can reset your password at any time from the sign-in screen.</li>
+  </ul>
+
+  <h2>Cookies &amp; local storage</h2>
+  <p>We use your browser's local storage to keep you signed in between visits. We don't use third-party advertising or tracking cookies.</p>
+
+  <h2>Children</h2>
+  <p>Struck is not directed at children under 13, and we don't knowingly collect information from them.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>If this policy changes in a meaningful way, we'll update the date at the top of this page.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about your data or this policy? Reach us at <a href="mailto:rachelmavros1@gmail.com">rachelmavros1@gmail.com</a>.</p>
+</div>
+</body>
+</html>

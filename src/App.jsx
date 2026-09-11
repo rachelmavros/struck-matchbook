@@ -790,7 +790,9 @@ export default function App() {
       </div>
 
       <footer>
-        Clean map by CARTO. Gold pins are on your wishlist; orange pins are approximate. Zoom in once to see place names on the map.
+        Map by Esri. Gold pins are on your wishlist; orange pins are approximate. Zoom in once to see place names on the map.
+        <span className="footer-sep"> · </span>
+        <a className="footer-link" href="/privacy.html">Privacy Policy</a>
       </footer>
 
       <InstallPrompt />
