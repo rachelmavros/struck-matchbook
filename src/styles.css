@@ -301,7 +301,7 @@ button.go:active{box-shadow:0 1px 0 var(--green-dk)}
 .badge .match{width:14px;height:40px;flex:0 0 auto;margin-left:-4px}
 .badge .match .stick{left:5px;top:11px;height:29px;width:4px;background:#e6d3ac;border:0}
 .badge .match .head{left:0;top:0;width:14px;height:15px}
-.badge h1{font-family:'Rock Salt',cursive;font-weight:400;text-transform:none;letter-spacing:0;color:#fff;font-size:21px;line-height:1.5;margin:0;transform:rotate(-6deg);text-shadow:0 2px 0 rgba(0,0,0,.25)}
+.badge h1{font-family:'Oswald',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#f6efe0;font-size:30px;line-height:1;margin:0;text-shadow:0 2px 0 rgba(0,0,0,.25)}
 .hero-title{margin:16px 0 0;font-family:var(--ui);font-weight:800;font-size:clamp(26px,4vw,38px);letter-spacing:-.01em;line-height:1;color:#fff;text-shadow:0 2px 14px rgba(40,6,4,.8);text-transform:none}
 .hero-search{max-width:520px;font-size:16px;padding:13px 18px;margin:16px 0 0;border:0;box-shadow:0 8px 22px rgba(40,8,6,.3)}
 .hero-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px}
@@ -313,7 +313,7 @@ button.go:active{box-shadow:0 1px 0 var(--green-dk)}
 @media(max-width:700px){
   .hero{padding:52px 14px 20px}
   .badge{width:124px;height:124px}
-  .badge h1{font-size:17px}
+  .badge h1{font-size:22px}
   .intro{font-size:14px;padding:0 4px}
 }
 .addtoggle{width:100%;display:flex;justify-content:space-between;align-items:center;font-family:var(--ui);font-weight:700;font-size:14px;padding:12px 14px;border:1px dashed #cfcac1;border-radius:12px;background:#fff;color:var(--ink);cursor:pointer}
