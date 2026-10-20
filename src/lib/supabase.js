@@ -23,7 +23,7 @@ export async function ensureUser() {
 
 // Where magic links should land. Never localhost: a link created on a dev machine has
 // to be clickable from a phone, and localhost isn't reachable from another device.
-const PROD_URL = 'https://struck-matchbook.vercel.app'
+const PROD_URL = 'https://chicagomatchbooks.com'
 function signInRedirectTo() {
   const configured = import.meta.env.VITE_SITE_URL
   if (configured) return configured
@@ -54,6 +54,16 @@ export async function signInWithPassword(email, password) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password })
   if (error) throw error
   return data.user
+}
+
+// Google sign-in. Redirects to Google and back; supabase-js picks the session up from the
+// return URL on load. Needs the Google provider enabled in Supabase (Auth → Providers).
+export async function signInWithGoogle() {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: signInRedirectTo() },
+  })
+  if (error) throw error
 }
 
 // Send a password-reset email. The link brings the user back to the site with

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
-import { ensureUser, ensureProfile, sendMagicLink, signInWithPassword, signUpWithPassword, sendPasswordReset, updatePassword, signOut, supabase } from './lib/supabase'
+import { ensureUser, ensureProfile, sendMagicLink, signInWithPassword, signInWithGoogle, signUpWithPassword, sendPasswordReset, updatePassword, signOut, supabase } from './lib/supabase'
 import {
   loadFileToCanvas, canvasToBase64, cropNormalized, tileRects, isValidBbox, canvasToFile,
 } from './lib/vision'
@@ -47,6 +47,7 @@ function urlToCanvas(url) {
   })
 }
 
+const PAGE_SIZE = 20
 const TYPES = ['bar', 'restaurant', 'coffee_shop', 'hotel', 'theater', 'other']
 const TYPE_LABELS = { coffee_shop: 'Coffee Shop', bar: 'Bar', restaurant: 'Restaurant', hotel: 'Hotel', theater: 'Theater', other: 'Other' }
 const typeLabel = (t) => TYPE_LABELS[t] || cap(t)
@@ -135,7 +136,8 @@ export default function App() {
   const [pending, setPending] = useState([])       // couldn't place -> manual search
   const [candidates, setCandidates] = useState({}) // pendingId -> results | 'loading'
   const [assigning, setAssigning] = useState(null)  // pendingId currently being saved
-  const [filters, setFilters] = useState({ view: 'all', type: 'all', hood: 'all' })
+  const [filters, setFilters] = useState({ view: 'all', type: 'all', hoods: [], q: '' }) // hoods: [] = all
+  const [page, setPage] = useState(0) // results list is shown PAGE_SIZE spots at a time
   const [status, setStatus] = useState('')
   const [staged, setStaged] = useState(null)
   const [modalId, setModalId] = useState(null)
@@ -159,17 +161,25 @@ export default function App() {
     // wheelPxPerZoomLevel lower than Leaflet's default (60) means a bigger zoom jump
     // per pinch/scroll amount.
     const map = L.map(mapEl.current, {
-      scrollWheelZoom: true, zoomSnap: 0.25, wheelPxPerZoomLevel: 20, maxZoom: 19,
+      scrollWheelZoom: true, zoomSnap: 0.25, wheelPxPerZoomLevel: 20, maxZoom: 20,
     }).setView(CHI, 12)
 
-    // CARTO's free raster basemaps started requiring an API key in August 2026 —
-    // without one they render with an "API KEY REQUIRED" watermark. Esri's Light Gray
-    // Canvas is free, keyless, and close to that same minimalist look. Its own tiles
-    // only go up to zoom 16 (maxNativeZoom) — Leaflet upscales them past that so you
-    // can still zoom in closer to street level, at the cost of a blurrier basemap.
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 19, maxNativeZoom: 16, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
+    // Basemap: Stadia "Alidade Smooth" — clean gray, real street names, retina tiles, zoom to 20.
+    // Stadia authorizes by domain (add the site's domain in the Stadia dashboard; localhost works
+    // without it), so no key ships to the browser. If its tiles are refused before any load,
+    // fall back to Esri's keyless gray canvas plus its street-name reference layer.
+    const stadia = L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png', {
+      maxZoom: 20, attribution: '© Stadia Maps © OpenMapTiles © OpenStreetMap contributors',
     }).addTo(map)
+    let stadiaLoaded = false, stadiaErrors = 0
+    stadia.on('tileload', () => { stadiaLoaded = true })
+    stadia.on('tileerror', () => {
+      if (stadiaLoaded || ++stadiaErrors < 3) return
+      map.removeLayer(stadia)
+      const esri = (layer) => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${layer}/MapServer/tile/{z}/{y}/{x}`
+      L.tileLayer(esri('World_Light_Gray_Base'), { maxZoom: 20, maxNativeZoom: 16, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors' }).addTo(map)
+      L.tileLayer(esri('World_Light_Gray_Reference'), { maxZoom: 20, maxNativeZoom: 16, pane: 'shadowPane' }).addTo(map)
+    })
     layerRef.current = L.layerGroup().addTo(map)
 
     const updateLabels = () => {
@@ -182,7 +192,7 @@ export default function App() {
     mapRef.current = map
     map._updateLabels = updateLabels
 
-    window.__openSpot = (id) => { setModalId(id); setGIndex(0) }
+    window.__openSpot = (id, i = 0) => { setModalId(id); setGIndex(i) }
 
     // If the user landed here via a password-reset link, don't run the anonymous
     // sign-in path — that would clobber the recovery session. Open the "set new
@@ -341,9 +351,16 @@ export default function App() {
     if (filters.view === 'wishlist' && !s.wishlist) return false
     if (filters.view === 'visited' && !s.visited) return false
     if (filters.type !== 'all' && s.type !== filters.type) return false
-    if (filters.hood !== 'all' && hoodLabel(s.neighborhood) !== filters.hood) return false
+    if (filters.hoods.length && !filters.hoods.includes(hoodLabel(s.neighborhood))) return false
+    if (filters.q && !norm([s.name, s.address, s.neighborhood].join(' ')).includes(norm(filters.q))) return false
     return true
   }), [enriched, filters])
+
+  // Back to the first page whenever the filters or search change.
+  useEffect(() => { setPage(0) }, [filters])
+  const sortedVisible = useMemo(() => visible.slice().sort((a, b) => a.name.localeCompare(b.name)), [visible])
+  const pageCount = Math.max(1, Math.ceil(sortedVisible.length / PAGE_SIZE))
+  const pageSpots = sortedVisible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   /* ----- markers ----- */
   useEffect(() => {
@@ -357,13 +374,23 @@ export default function App() {
       const icon = L.divIcon({ className: '', html: `<div class="pin ${cls}"></div>`, iconSize: [16, 16], iconAnchor: [8, 16] })
       const m = L.marker([s.lat, s.lng], { icon })
       const meta = shortAddress(s.address, s.neighborhood)
+      // Popup shows the matchbook photos right away; tapping one opens the full gallery there.
+      const shown = s.photos.slice(0, 3)
+      const extra = s.photos.length - shown.length
+      const photosHtml = !s.photos.length ? '' : shown.length === 1
+        ? `<img class="pop-hero" src="${esc(shown[0].public_url)}" alt="" onclick="window.__openSpot('${s.id}',0)">`
+        : `<div class="pop-photos">${shown.map((ph, i) =>
+            `<img src="${esc(ph.public_url)}" alt="" onclick="window.__openSpot('${s.id}',${i})">`).join('')}` +
+          (extra > 0 ? `<button class="pop-more" onclick="window.__openSpot('${s.id}',3)">+${extra}</button>` : '') + '</div>'
       m.bindPopup(
+        photosHtml +
         `<b>${esc(s.name)}</b><br>` +
         `<span class="pop-meta">${esc(typeLabel(s.type))}${s.status === 'closed' ? ' · closed' : ''}${meta ? '<br>' + esc(meta) : ''}</span><br>` +
-        `<button class="popbtn" onclick="window.__openSpot('${s.id}')">View photos (${s.photos.length})</button> ` +
-        `<a class="popbtn poplink" href="${mapsUrl(s.name, s.address)}" target="_blank" rel="noopener">Google Maps ↗</a>`
+        `<button class="popbtn" onclick="window.__openSpot('${s.id}')">Details &amp; notes</button> ` +
+        `<a class="popbtn poplink" href="${mapsUrl(s.name, s.address)}" target="_blank" rel="noopener">Google Maps ↗</a>`,
+        { minWidth: 230, maxWidth: 260 }
       )
-      m.bindTooltip(s.name, { permanent: true, direction: 'top', offset: [0, -14], className: 'mb-label' })
+      m.bindTooltip(s.name, { permanent: true, direction: 'right', offset: [4, -9], className: 'mb-label' })
       layer.addLayer(m); ms.push(m)
     })
     if (ms.length) {
@@ -376,7 +403,7 @@ export default function App() {
       // gentler max zoom so 1-2 spots don't snap in to a jarring street-level close-up.
       showLabelsNowRef.current = fitSet.length <= 15
       const bounds = L.featureGroup(fitSet).getBounds().pad(0.2)
-      if (filters.hood === 'all') {
+      if (filters.hoods.length === 0) {
         // City-wide view: keep the true Chicago center, just pick a zoom that fits the pins.
         let zoom = map.getBoundsZoom(bounds, false, undefined, undefined)
         zoom = Math.min(zoom, 16)
@@ -475,7 +502,8 @@ export default function App() {
   async function handleCropConfirm(newBbox) {
     const target = cropTarget
     if (!target) return
-    const cropped = cropNormalized(target.canvas, newBbox)
+    // No padding: a hand-drawn crop should come out exactly as drawn.
+    const cropped = cropNormalized(target.canvas, newBbox, 0)
     const file = await canvasToFile(cropped, 'matchbook.jpg')
     const url = URL.createObjectURL(file)
     if (target.kind === 'recrop') {
@@ -739,6 +767,9 @@ export default function App() {
 
           {/* ---------- filters ---------- */}
           <div className="filters">
+            <input className="searchbox" type="search" placeholder="Search a bar, restaurant, neighborhood…"
+              aria-label="Search spots" value={filters.q}
+              onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
             <div className="viewtabs">
               {['all', 'wishlist', 'visited'].map((v) => (
                 <button key={v} className={'vtab' + (filters.view === v ? ' on' : '')}
@@ -755,17 +786,27 @@ export default function App() {
                 </select>
               </label>
               <label>Neighborhood
-                <select value={filters.hood} onChange={(e) => setFilters((f) => ({ ...f, hood: e.target.value }))}>
-                  <option value="all">All areas</option>
-                  {hoods.map((h) => <option key={h} value={h}>{h}</option>)}
-                </select>
+                <HoodPicker hoods={hoods} selected={filters.hoods}
+                  onChange={(next) => setFilters((f) => ({ ...f, hoods: next }))} />
               </label>
             </div>
           </div>
 
           {/* ---------- results: map list ---------- */}
-          {enriched.length > 0 && <div className="results-h">{visible.length} spot{visible.length === 1 ? '' : 's'}</div>}
-          {visible.slice().sort((a, b) => a.name.localeCompare(b.name)).map((s) => (
+          {enriched.length > 0 && (
+            <div className="results-h pager">
+              <span>{visible.length} spot{visible.length === 1 ? '' : 's'}
+                {pageCount > 1 && ` · ${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, visible.length)}`}</span>
+              {pageCount > 1 && (
+                <span className="pager-btns">
+                  <button className="iact" aria-label="Previous page" disabled={page === 0} onClick={() => setPage((n) => n - 1)}>‹</button>
+                  <button className="iact" aria-label="Next page" disabled={page >= pageCount - 1} onClick={() => setPage((n) => n + 1)}>›</button>
+                </span>
+              )}
+            </div>
+          )}
+          {filters.q && visible.length === 0 && <div className="hint-sm">No spots match “{filters.q}”.</div>}
+          {pageSpots.map((s) => (
             <div className="spot" key={s.id}>
               <div className="top" onClick={() => { setModalId(s.id); setGIndex(0) }}>
                 {s.photos[0]
@@ -834,7 +875,7 @@ export default function App() {
       {modalSpot && (
         <Modal spot={modalSpot} gIndex={gIndex} setGIndex={setGIndex}
           onClose={() => setModalId(null)} onToggle={toggle}
-          user={user} isAdmin={!!profile?.is_admin}
+          user={user} signedIn={!!profile?.email} isAdmin={!!profile?.is_admin}
           onAdminSave={async (patch) => { await adminUpdateSpot(modalSpot.id, patch); await refresh(user?.id) }}
           onAdminMerge={async (removeId, keepId) => { await mergeSpots(keepId, removeId); await refresh(user?.id) }}
           onAdminDelete={async () => { await adminDeleteSpot(modalSpot.id); setModalId(null); await refresh(user?.id) }}
@@ -851,7 +892,7 @@ export default function App() {
   )
 }
 
-function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin,
+function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, signedIn, isAdmin,
   onAdminSave, onAdminDelete, onAdminDeletePhoto, onAdminRecropPhoto, onAdminMerge }) {
   const photos = spot.photos || []
   const meta = shortAddress(spot.address, spot.neighborhood)
@@ -899,15 +940,27 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin,
   const [comments, setComments] = useState([])
   const [commentText, setCommentText] = useState('')
   const [commentBusy, setCommentBusy] = useState(false)
-  useEffect(() => { loadComments(spot.id).then(setComments) }, [spot.id])
+  const [commentErr, setCommentErr] = useState('')
+  useEffect(() => { setCommentErr(''); loadComments(spot.id).then(setComments) }, [spot.id])
   async function submitComment() {
     if (!commentText.trim() || !user) return
     setCommentBusy(true)
+    setCommentErr('')
     try {
       const row = await addComment(spot.id, user.id, commentText.trim())
       setComments((c) => [row, ...c])
       setCommentText('')
+    } catch (e) {
+      console.warn('note failed:', e)
+      setCommentErr(/spot_comments|relation|schema cache/i.test(e?.message || '')
+        ? 'Notes aren’t set up yet — run supabase/migration_comments.sql.'
+        : 'Couldn’t post that — try again.')
     } finally { setCommentBusy(false) }
+  }
+  async function removeComment(id) {
+    if (!confirm('Delete this note?')) return
+    try { await deleteComment(id); setComments((c) => c.filter((x) => x.id !== id)) }
+    catch (e) { console.warn('delete note failed:', e); alert('Couldn’t delete that note.') }
   }
 
   return (
@@ -990,23 +1043,65 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, isAdmin,
         <div className="comments">
           <div className="comments-h">Notes &amp; updates</div>
           <p className="hint-sm">Seen this place close, or stop carrying matchbooks? Say so here.</p>
-          {user && (
+          {signedIn ? (
             <div className="comment-form">
-              <textarea rows={2} value={commentText} placeholder="Add a note…"
+              <textarea rows={2} value={commentText} placeholder="Add a note…" maxLength={1000}
                 onChange={(e) => setCommentText(e.target.value)} />
-              <button className="go save" disabled={commentBusy || !commentText.trim()} onClick={submitComment}>Post</button>
+              <button className="go save" disabled={commentBusy || !commentText.trim()} onClick={submitComment}>
+                {commentBusy ? 'Posting…' : 'Post'}
+              </button>
+              {commentErr && <div className="hint-sm warn">{commentErr}</div>}
             </div>
+          ) : (
+            <div className="hint-sm">Sign in to add a note.</div>
           )}
           {comments.length === 0
             ? <div className="hint-sm">No notes yet.</div>
             : comments.map((c) => (
               <div className="comment" key={c.id}>
                 <div className="comment-body">{c.body}</div>
-                <div className="comment-meta">{new Date(c.created_at).toLocaleDateString()}</div>
+                <div className="comment-meta">
+                  {new Date(c.created_at).toLocaleDateString()}
+                  {(isAdmin || c.user_id === user?.id) && (
+                    <button className="linkbtn" onClick={() => removeComment(c.id)}>Delete</button>
+                  )}
+                </div>
               </div>
             ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+// Multi-select neighborhood filter: a dropdown of checkboxes. Nothing checked = all areas.
+function HoodPicker({ hoods, selected, onChange }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
+    document.addEventListener('pointerdown', close)
+    return () => document.removeEventListener('pointerdown', close)
+  }, [open])
+  const toggle = (h) => onChange(selected.includes(h) ? selected.filter((x) => x !== h) : [...selected, h])
+  const summary = selected.length === 0 ? 'All areas'
+    : selected.length === 1 ? selected[0] : `${selected.length} areas`
+  return (
+    <div className="hoodpick" ref={ref}>
+      <button type="button" className="hoodpick-btn" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span>{summary}</span><span aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <div className="hoodpick-menu">
+          <button type="button" className="linkbtn" onClick={() => onChange([])} disabled={!selected.length}>Clear — show all</button>
+          {hoods.map((h) => (
+            <label key={h} className="hoodpick-row">
+              <input type="checkbox" checked={selected.includes(h)} onChange={() => toggle(h)} /> {h}
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -1259,6 +1354,13 @@ function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
           <RecoveryForm authStatus={authStatus} onSubmit={onSetNewPassword} onCancel={() => { window.history.replaceState(null, '', window.location.pathname); window.location.reload() }} />
         ) : !signedIn ? (
           <div className="acct-body">
+            <button className="google-btn" onClick={async () => {
+              try { await signInWithGoogle() } catch (e) { alert('Google sign-in isn’t available right now: ' + (e?.message || 'unknown error')) }
+            }}>
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.3-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.3-.4-3.5z"/></svg>
+              Continue with Google
+            </button>
+            <div className="or-divider"><span>or use email</span></div>
             <div className="acct-tabs">
               <button className={'atab' + (mode === 'password' ? ' on' : '')} onClick={() => setMode('password')}>Sign in</button>
               <button className={'atab' + (mode === 'signup' ? ' on' : '')} onClick={() => setMode('signup')}>Create account</button>

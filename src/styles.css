@@ -175,7 +175,9 @@ footer{margin-top:26px;font-size:12.5px;color:#6f7672;line-height:1.6}
 .hint-sm{font-size:12px;color:#6f7672;margin-top:6px}
 
 /* map place labels (shown only when zoomed in, via .labels-on on the map container) */
-.leaflet-tooltip.mb-label{background:var(--ink);color:var(--stock);border:none;box-shadow:0 1px 5px rgba(0,0,0,.35);font-family:var(--ui);font-size:11px;letter-spacing:.03em;padding:2px 7px;border-radius:4px;display:none;white-space:nowrap}
+/* Google-style place labels: bare text with a white halo, no box */
+.leaflet-tooltip.mb-label{background:none;border:none;box-shadow:none;padding:0;color:#2b3330;font-family:var(--ui);font-size:10.5px;font-weight:600;letter-spacing:.01em;white-space:nowrap;display:none;
+  text-shadow:0 0 2px #fff,0 0 2px #fff,0 0 3px #fff,1px 1px 0 #fff,-1px -1px 0 #fff,1px -1px 0 #fff,-1px 1px 0 #fff}
 .leaflet-tooltip.mb-label::before{display:none}
 .labels-on .leaflet-tooltip.mb-label{display:block}
 
@@ -211,8 +213,9 @@ footer{margin-top:26px;font-size:12.5px;color:#6f7672;line-height:1.6}
 .cropbtn:hover{background:var(--ember)}
 .cropoverlay{z-index:1100}
 .cropmodal{max-width:640px}
-.crop-stage{position:relative;margin:14px 18px;background:#000;border-radius:8px;overflow:hidden}
-.crop-canvas{display:block;width:100%;height:auto}
+/* stage shrink-wraps the canvas so the % crop box lines up exactly; tall photos are capped to fit the screen */
+.crop-stage{position:relative;width:fit-content;max-width:calc(100% - 36px);margin:14px auto;background:#000;border-radius:8px;overflow:hidden;line-height:0}
+.crop-canvas{display:block;max-width:100%;max-height:62vh;width:auto;height:auto}
 .crop-rect{position:absolute;border:2px solid var(--ember);box-shadow:0 0 0 9999px rgba(0,0,0,.45);cursor:move;touch-action:none}
 .crop-handle{position:absolute;width:14px;height:14px;background:var(--ember);border:2px solid #fff;border-radius:50%;transform:translate(-50%,-50%);touch-action:none}
 .crop-handle.nw{left:0;top:0;cursor:nwse-resize}
@@ -310,3 +313,44 @@ button.go:active{box-shadow:0 1px 0 var(--green-dk)}
   .badge{width:150px;height:150px}
   .badge h1{font-size:20px}
 }
+
+/* search + paging */
+.searchbox{width:100%;box-sizing:border-box;font-family:var(--ui);font-size:14px;padding:11px 14px;border:1px solid var(--stock-dk);border-radius:999px;background:#fff;color:var(--ink);margin-bottom:12px}
+.searchbox:focus{outline:none;border-color:var(--green)}
+.pager{display:flex;justify-content:space-between;align-items:center}
+.pager-btns{display:flex;gap:6px}
+.pager-btns .iact{font-size:18px}
+.pager-btns .iact:disabled{opacity:.35;cursor:default}
+
+/* neighborhood multi-select */
+.hoodpick{position:relative;margin-top:4px;text-transform:none;letter-spacing:0}
+.hoodpick-btn{width:100%;display:flex;justify-content:space-between;align-items:center;font-family:var(--ui);font-size:13px;padding:7px;border:1px solid var(--stock-dk);border-radius:6px;background:#fff;color:var(--ink);cursor:pointer;text-align:left}
+.hoodpick-menu{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 4px);min-width:200px;max-height:280px;overflow:auto;background:#fff;border:1px solid var(--stock-dk);border-radius:10px;box-shadow:0 10px 24px rgba(23,32,27,.16);padding:6px 10px}
+.hoodpick-menu .linkbtn{padding:6px 0;font-size:12.5px;color:var(--green)}
+.hoodpick-menu .linkbtn:disabled{opacity:.4;cursor:default}
+.selrow .hoodpick-row,.hoodpick-row{text-transform:none;letter-spacing:0;display:flex;align-items:center;gap:8px;padding:6px 0;font-family:var(--ui);font-size:13.5px;color:var(--ink);cursor:pointer;font-weight:400}
+.hoodpick-row input{width:16px;height:16px;accent-color:var(--green)}
+
+/* notes & updates */
+.comments{padding:6px 18px 18px;border-top:1px solid var(--stock-dk);margin-top:6px}
+.comments-h{font-weight:800;letter-spacing:.08em;text-transform:uppercase;font-size:12px;margin-top:10px}
+.comment-form{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.comment-form textarea{width:100%;box-sizing:border-box;font-family:var(--ui);font-size:14px;padding:10px;border:1px solid var(--stock-dk);border-radius:10px;resize:vertical}
+.comment-form textarea:focus{outline:none;border-color:var(--green)}
+.comment-form .go.save{align-self:flex-end;width:auto;padding:10px 22px}
+.comment{border-top:1px solid var(--stock-dk);padding:9px 0;font-size:14px}
+.comment-meta{color:var(--muted);font-size:11.5px;margin-top:3px;display:flex;gap:10px;align-items:center}
+.comment-meta .linkbtn{font-size:11.5px;padding:0;color:var(--red)}
+
+/* Google sign-in */
+.google-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;font-family:var(--ui);font-weight:600;font-size:15px;padding:12px;border:1px solid #d6d3cc;border-radius:999px;background:#fff;color:#1f1f1f;cursor:pointer}
+.google-btn:hover{background:#f6f8f6}
+.or-divider{display:flex;align-items:center;gap:10px;margin:14px 0 4px;color:var(--muted);font-size:12px}
+.or-divider::before,.or-divider::after{content:"";flex:1;border-top:1px solid var(--stock-dk)}
+.acct-body .acct-tabs{padding:8px 0 10px}
+
+/* photos inside the map popup (fixed heights so the popup doesn't jump as images load) */
+.pop-hero{display:block;width:100%;height:150px;object-fit:cover;border-radius:8px;margin-bottom:8px;cursor:zoom-in;background:#f0eeea}
+.pop-photos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-bottom:8px;position:relative}
+.pop-photos img{width:100%;height:86px;object-fit:cover;border-radius:6px;cursor:zoom-in;background:#f0eeea}
+.pop-more{position:absolute;right:4px;bottom:4px;border:0;border-radius:999px;background:rgba(23,32,27,.75);color:#fff;font-family:var(--ui);font-size:12px;font-weight:600;padding:3px 8px;cursor:pointer}
