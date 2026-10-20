@@ -477,7 +477,12 @@ export default function App() {
     try {
       canvas = await loadFileToCanvas(staged.file)
       pass1 = await readWholeCanvas(canvas)
-    } catch (e) { setStatus('Couldn’t read that photo — try a sharper, closer shot.'); return }
+    } catch (e) {
+      setStatus(/429/.test(e?.message || '')
+        ? 'You’ve hit today’s limit for reading photos. Try again tomorrow.'
+        : 'Couldn’t read that photo — try a sharper, closer shot.')
+      return
+    }
 
     let items = pass1.items, unreadable = pass1.unreadable
     const looksDense = pass1.unreadable >= 4 || pass1.items.length >= 8
@@ -708,7 +713,7 @@ export default function App() {
           <h1>Struck</h1>
         </div>
         <h2 className="hero-title">Chicago Matchbook Finder</h2>
-        <p className="hero-lede">Add a photo of a matchbook: it reads the covers, you review the matches, and each spot drops on the map. Dense collages get split up and cropped automatically. Can’t read one? Search and pin it yourself.</p>
+        <p className="hero-lede">Help grow our community and uncover the coolest matchbooks out there. Snap a photo of one and we’ll read the cover and pin the spot on the map.</p>
         <input className="searchbox hero-search" type="search" placeholder="Search a bar, restaurant, neighborhood…"
             aria-label="Search spots" value={filters.q}
             onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
