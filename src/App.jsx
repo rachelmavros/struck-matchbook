@@ -138,7 +138,7 @@ export default function App() {
   const [assigning, setAssigning] = useState(null)  // pendingId currently being saved
   const [filters, setFilters] = useState({ view: 'all', type: 'all', hoods: [], q: '' }) // hoods: [] = all
   const [photoPins, setPhotoPins] = useState(() => {
-    try { return localStorage.getItem('struck-photo-pins') !== '0' } catch { return true } // photos are the default
+    try { return localStorage.getItem('struck-pins') !== '0' } catch { return true } // photos are the default
   })
   const [addOpen, setAddOpen] = useState(false)
   const [page, setPage] = useState(0) // results list is shown PAGE_SIZE spots at a time
@@ -437,7 +437,7 @@ export default function App() {
       // gentler max zoom so 1-2 spots don't snap in to a jarring street-level close-up.
       showLabelsNowRef.current = fitSet.length <= 15
       const bounds = L.featureGroup(fitSet).getBounds().pad(0.2)
-      if (filters.hoods.length === 0) {
+      if (filters.hoods.length === 0 && !filters.q) {
         // City-wide view: keep the true Chicago center, just pick a zoom that fits the pins.
         let zoom = map.getBoundsZoom(bounds, false, undefined, undefined)
         // One step closer than "fits everything" — the pins are dense downtown, so start a bit tighter.
@@ -445,18 +445,19 @@ export default function App() {
         if (zoom < MIN_FIT_ZOOM + 1) zoom = MIN_FIT_ZOOM + 1
         map.setView(CHI, zoom, { animate: false })
       } else {
-        // A specific neighborhood is selected — center on its actual pins instead.
+        // A neighborhood or a search is active — zoom to just those pins.
         map.fitBounds(bounds, { animate: false, maxZoom: 16 })
         if (map.getZoom() < MIN_FIT_ZOOM) map.setZoom(MIN_FIT_ZOOM)
       }
       baseZoomRef.current = map.getZoom()
+      if (filters.q && ms.length === 1) ms[0].openPopup()
     }
     map._updateLabels?.()
   }, [visible, photoPins])
 
   useEffect(() => {
     if (photoBtnRef.current) photoBtnRef.current.textContent = photoPins ? 'Show dots' : 'Show photos'
-    try { localStorage.setItem('struck-photo-pins', photoPins ? '1' : '0') } catch { /* private mode */ }
+    try { localStorage.setItem('struck-pins', photoPins ? '1' : '0') } catch { /* private mode */ }
   }, [photoPins])
 
   /* ----- upload + read -> build a review list (nothing saved yet) ----- */
@@ -707,6 +708,7 @@ export default function App() {
           <h1>Struck</h1>
         </div>
         <h2 className="hero-title">Chicago Matchbook Finder</h2>
+        <p className="hero-lede">Add a photo of a matchbook: it reads the covers, you review the matches, and each spot drops on the map. Dense collages get split up and cropped automatically. Can’t read one? Search and pin it yourself.</p>
         <input className="searchbox hero-search" type="search" placeholder="Search a bar, restaurant, neighborhood…"
             aria-label="Search spots" value={filters.q}
             onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
@@ -719,7 +721,6 @@ export default function App() {
 
       <div className="strip" />
 
-      <p className="intro">Add a photo of a matchbook: it reads the covers, you review the matches, and each spot drops on the map. Dense collages get split up and cropped automatically. Can’t read one? Search and pin it yourself.</p>
 
       <div className="cols">
         <div className="panel panel-slot" ref={panelRef}>

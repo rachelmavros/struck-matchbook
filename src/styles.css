@@ -283,6 +283,7 @@ button.go:active{box-shadow:0 1px 0 var(--green-dk)}
 .hero{position:relative;width:100vw;margin-left:calc(50% - 50vw);box-sizing:border-box;padding:28px 16px 26px;
   display:flex;flex-direction:column;align-items:center;text-align:center;overflow:hidden;
   background:
+    radial-gradient(ellipse 46% 38% at 50% 62%,rgba(40,8,6,.5),rgba(40,8,6,0) 100%),
     linear-gradient(180deg,rgba(40,8,6,0) 30%,rgba(40,8,6,.45) 100%),
     radial-gradient(ellipse 120% 90% at 50% 35%,transparent 50%,rgba(40,8,6,.3) 100%),
     repeating-linear-gradient(0deg,rgba(176,32,28,.55) 0 22px,transparent 22px 44px),
@@ -309,17 +310,18 @@ button.go:active{box-shadow:0 1px 0 var(--green-dk)}
 .pill:hover{background:var(--green);border-color:var(--green);color:#fff}
 .pill-red{background:var(--red);border-color:var(--red);color:#fff}
 .pill-red:hover{background:var(--red-dk);border-color:var(--red-dk)}
-.intro{max-width:720px;margin:0 auto 22px;text-align:center;font-size:15px;line-height:1.5;color:#3d4541}
+.hero-lede{max-width:600px;margin:10px 0 0;font-size:15px;line-height:1.45;font-weight:500;color:#fff;text-shadow:0 1px 2px rgba(40,6,4,.9),0 2px 12px rgba(40,6,4,.8)}
 @media(max-width:700px){
   .hero{padding:52px 14px 20px}
   .badge{width:124px;height:124px}
   .badge h1{font-size:22px}
-  .intro{font-size:14px;padding:0 4px}
+  .hero-lede{font-size:13.5px}
+  .hero-title{margin-top:12px}
 }
 .addtoggle{width:100%;display:flex;justify-content:space-between;align-items:center;font-family:var(--ui);font-weight:700;font-size:14px;padding:12px 14px;border:1px dashed #cfcac1;border-radius:12px;background:#fff;color:var(--ink);cursor:pointer}
 .addtoggle:hover{border-color:var(--red);color:var(--red)}
 .addbox{margin-top:12px}
-.strip{margin:0 0 18px;width:100vw;margin-left:calc(50% - 50vw);border-radius:0}
+.strip{margin:0 0 22px;width:100vw;margin-left:calc(50% - 50vw);border-radius:0}
 .strip::after{color:#f3f1ed}
 
 /* search + paging */
