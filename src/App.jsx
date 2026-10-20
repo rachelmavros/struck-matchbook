@@ -192,7 +192,7 @@ export default function App() {
     mapRef.current = map
     map._updateLabels = updateLabels
 
-    window.__openSpot = (id) => { setModalId(id); setGIndex(0) }
+    window.__openSpot = (id, i = 0) => { setModalId(id); setGIndex(i) }
 
     // If the user landed here via a password-reset link, don't run the anonymous
     // sign-in path — that would clobber the recovery session. Open the "set new
@@ -374,11 +374,21 @@ export default function App() {
       const icon = L.divIcon({ className: '', html: `<div class="pin ${cls}"></div>`, iconSize: [16, 16], iconAnchor: [8, 16] })
       const m = L.marker([s.lat, s.lng], { icon })
       const meta = shortAddress(s.address, s.neighborhood)
+      // Popup shows the matchbook photos right away; tapping one opens the full gallery there.
+      const shown = s.photos.slice(0, 3)
+      const extra = s.photos.length - shown.length
+      const photosHtml = !s.photos.length ? '' : shown.length === 1
+        ? `<img class="pop-hero" src="${esc(shown[0].public_url)}" alt="" onclick="window.__openSpot('${s.id}',0)">`
+        : `<div class="pop-photos">${shown.map((ph, i) =>
+            `<img src="${esc(ph.public_url)}" alt="" onclick="window.__openSpot('${s.id}',${i})">`).join('')}` +
+          (extra > 0 ? `<button class="pop-more" onclick="window.__openSpot('${s.id}',3)">+${extra}</button>` : '') + '</div>'
       m.bindPopup(
+        photosHtml +
         `<b>${esc(s.name)}</b><br>` +
         `<span class="pop-meta">${esc(typeLabel(s.type))}${s.status === 'closed' ? ' · closed' : ''}${meta ? '<br>' + esc(meta) : ''}</span><br>` +
-        `<button class="popbtn" onclick="window.__openSpot('${s.id}')">View photos (${s.photos.length})</button> ` +
-        `<a class="popbtn poplink" href="${mapsUrl(s.name, s.address)}" target="_blank" rel="noopener">Google Maps ↗</a>`
+        `<button class="popbtn" onclick="window.__openSpot('${s.id}')">Details &amp; notes</button> ` +
+        `<a class="popbtn poplink" href="${mapsUrl(s.name, s.address)}" target="_blank" rel="noopener">Google Maps ↗</a>`,
+        { minWidth: 230, maxWidth: 260 }
       )
       m.bindTooltip(s.name, { permanent: true, direction: 'right', offset: [4, -9], className: 'mb-label' })
       layer.addLayer(m); ms.push(m)
