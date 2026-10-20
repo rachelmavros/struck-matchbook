@@ -704,7 +704,7 @@ export default function App() {
   return (
     <div className="wrap">
       {/* Hero: tablecloth band with the badge, how-it-works copy, search and the main actions. */}
-      {/* Header: white top with the matchbook-cover logo and copy; tablecloth below with search + actions. */}
+      {/* Header: white, with the logo, copy, search and actions. The striker strip under it divides it from the tablecloth page. */}
       <header className="hero">
         <div className="hero-top">
           <div className="hero-acct">
@@ -717,8 +717,6 @@ export default function App() {
           </div>
           <h2 className="hero-title">Chicago Matchbook Finder</h2>
           <p className="hero-lede">Help grow our community and uncover the coolest matchbooks out there. Snap a photo of one and we’ll read the cover and pin the spot on the map.</p>
-        </div>
-        <div className="hero-cloth">
           <input className="searchbox hero-search" type="search" placeholder="Search a bar, restaurant, neighborhood…"
             aria-label="Search spots" value={filters.q}
             onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
