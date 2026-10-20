@@ -374,3 +374,12 @@ button.go:active{box-shadow:0 1px 0 var(--green-dk)}
 .pin-photo.type-hotel{outline-color:#2d5a8a}.pin-photo.type-theater{outline-color:#8a3d7a}.pin-photo.wish{outline-color:var(--red)}
 .map-toggle{font-family:var(--ui);font-weight:600;font-size:12.5px;padding:8px 14px;border:0;border-radius:999px;background:#fff;color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.25);cursor:pointer}
 .map-toggle:hover{background:var(--green);color:#fff}
+
+/* tablecloth behind everything below the white header top */
+body{background:
+  repeating-linear-gradient(0deg,rgba(176,32,28,.55) 0 22px,transparent 22px 44px),
+  repeating-linear-gradient(90deg,rgba(176,32,28,.55) 0 22px,transparent 22px 44px),
+  #f6f3ee}
+.hero-cloth{background:linear-gradient(180deg,rgba(40,8,6,.16),rgba(40,8,6,0) 40%)}
+.panel{background:#fff}
+footer{background:rgba(255,255,255,.96);border-radius:12px;padding:12px 16px;box-shadow:0 6px 18px rgba(40,8,6,.15)}
