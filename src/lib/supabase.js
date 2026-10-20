@@ -23,7 +23,7 @@ export async function ensureUser() {
 
 // Where magic links should land. Never localhost: a link created on a dev machine has
 // to be clickable from a phone, and localhost isn't reachable from another device.
-const PROD_URL = 'https://struck-matchbook.vercel.app'
+const PROD_URL = 'https://chicagomatchbooks.com'
 function signInRedirectTo() {
   const configured = import.meta.env.VITE_SITE_URL
   if (configured) return configured
