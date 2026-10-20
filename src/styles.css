@@ -282,12 +282,6 @@ button.go:active{box-shadow:0 1px 0 var(--green-dk)}
 
 .hero{position:relative;width:100vw;margin-left:calc(50% - 50vw);box-sizing:border-box;padding:0;display:flex;flex-direction:column;text-align:center}
 .hero-top{position:relative;background:#fff;padding:24px 16px 20px;display:flex;flex-direction:column;align-items:center}
-.hero-cloth{padding:22px 16px 24px;display:flex;flex-direction:column;align-items:center;
-  background:
-    linear-gradient(180deg,rgba(40,8,6,.18),rgba(40,8,6,0) 30%,rgba(40,8,6,.25) 100%),
-    repeating-linear-gradient(0deg,rgba(176,32,28,.55) 0 22px,transparent 22px 44px),
-    repeating-linear-gradient(90deg,rgba(176,32,28,.55) 0 22px,transparent 22px 44px),
-    #f6f3ee}
 .hero-acct{position:absolute;top:12px;right:16px;z-index:2}
 .hero .acct{padding:0}
 .hero .acct-btn{background:#fff;color:var(--ink);border:1px solid var(--stock-dk);border-radius:999px;box-shadow:none}
@@ -305,7 +299,7 @@ button.go:active{box-shadow:0 1px 0 var(--green-dk)}
 .lb-strike{height:12px;background:repeating-linear-gradient(45deg,#1c1712 0 2px,#4a3f35 2px 4px)}
 .hero-title{margin:14px 0 0;font-family:var(--ui);font-weight:800;font-size:clamp(24px,3.6vw,34px);letter-spacing:-.01em;line-height:1.05;color:var(--ink)}
 .hero-lede{max-width:560px;margin:8px 0 0;font-size:15px;line-height:1.45;color:#3d4541}
-.hero-search{max-width:520px;font-size:16px;padding:13px 18px;margin:0;border:0;box-shadow:0 8px 22px rgba(40,8,6,.3)}
+.hero-search{max-width:520px;font-size:16px;padding:13px 18px;margin:16px 0 0;border:1px solid #d6d3cc;box-shadow:0 4px 14px rgba(23,32,27,.08)}
 .hero-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px}
 .pill{font-family:var(--ui);font-weight:600;font-size:13px;letter-spacing:.02em;border:1px solid var(--stock-dk);border-radius:999px;padding:10px 16px;background:#fff;color:var(--ink);cursor:pointer;box-shadow:0 4px 12px rgba(40,8,6,.2)}
 .pill:hover{background:var(--green);border-color:var(--green);color:#fff}
@@ -321,7 +315,7 @@ button.go:active{box-shadow:0 1px 0 var(--green-dk)}
 .addtoggle{width:100%;display:flex;justify-content:space-between;align-items:center;font-family:var(--ui);font-weight:700;font-size:14px;padding:12px 14px;border:1px dashed #cfcac1;border-radius:12px;background:#fff;color:var(--ink);cursor:pointer}
 .addtoggle:hover{border-color:var(--red);color:var(--red)}
 .addbox{margin-top:12px}
-.strip{margin:0 0 22px;width:100vw;margin-left:calc(50% - 50vw);border-radius:0}
+.strip{margin:0 0 26px;box-shadow:0 3px 8px rgba(0,0,0,.25);width:100vw;margin-left:calc(50% - 50vw);border-radius:0}
 .strip::after{color:#f3f1ed}
 
 /* search + paging */
@@ -374,3 +368,11 @@ button.go:active{box-shadow:0 1px 0 var(--green-dk)}
 .pin-photo.type-hotel{outline-color:#2d5a8a}.pin-photo.type-theater{outline-color:#8a3d7a}.pin-photo.wish{outline-color:var(--red)}
 .map-toggle{font-family:var(--ui);font-weight:600;font-size:12.5px;padding:8px 14px;border:0;border-radius:999px;background:#fff;color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.25);cursor:pointer}
 .map-toggle:hover{background:var(--green);color:#fff}
+
+/* tablecloth behind everything below the white header top */
+body{background:
+  repeating-linear-gradient(0deg,rgba(176,32,28,.55) 0 22px,transparent 22px 44px),
+  repeating-linear-gradient(90deg,rgba(176,32,28,.55) 0 22px,transparent 22px 44px),
+  #f6f3ee}
+.panel{background:#fff}
+footer{background:rgba(255,255,255,.96);border-radius:12px;padding:12px 16px;box-shadow:0 6px 18px rgba(40,8,6,.15)}
