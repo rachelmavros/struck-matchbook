@@ -704,17 +704,22 @@ export default function App() {
   return (
     <div className="wrap">
       {/* Hero: tablecloth band with the badge, how-it-works copy, search and the main actions. */}
+      {/* Header: white top with the matchbook-cover logo and copy; tablecloth below with search + actions. */}
       <header className="hero">
-        <div className="hero-acct">
-          <HeaderAccount profile={profile} onOpen={() => setAccountOpen(true)} onSignOut={handleSignOut} />
+        <div className="hero-top">
+          <div className="hero-acct">
+            <HeaderAccount profile={profile} onOpen={() => setAccountOpen(true)} onSignOut={handleSignOut} />
+          </div>
+          <div className="logo-book" aria-label="Struck">
+            <div className="lb-flap"><div className="match"><div className="stick" /><div className="head flame" /></div></div>
+            <div className="lb-face"><h1>Struck</h1><span>Chicago</span></div>
+            <div className="lb-strike" />
+          </div>
+          <h2 className="hero-title">Chicago Matchbook Finder</h2>
+          <p className="hero-lede">Help grow our community and uncover the coolest matchbooks out there. Snap a photo of one and we’ll read the cover and pin the spot on the map.</p>
         </div>
-        <div className="badge">
-          <div className="match"><div className="stick" /><div className="head flame" /></div>
-          <h1>Struck</h1>
-        </div>
-        <h2 className="hero-title">Chicago Matchbook Finder</h2>
-        <p className="hero-lede">Help grow our community and uncover the coolest matchbooks out there. Snap a photo of one and we’ll read the cover and pin the spot on the map.</p>
-        <input className="searchbox hero-search" type="search" placeholder="Search a bar, restaurant, neighborhood…"
+        <div className="hero-cloth">
+          <input className="searchbox hero-search" type="search" placeholder="Search a bar, restaurant, neighborhood…"
             aria-label="Search spots" value={filters.q}
             onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
           <div className="hero-acts">
@@ -722,6 +727,7 @@ export default function App() {
             <button className="pill" onClick={() => { setFilters((f) => ({ ...f, view: 'wishlist' })); panelRef.current?.scrollIntoView({ behavior: 'smooth' }) }}>♥ View favorites</button>
             <button className="pill pill-red" onClick={() => { setAddOpen(true); fileRef.current?.click() }}>+ Add your own matchbook</button>
           </div>
+        </div>
       </header>
 
       <div className="strip" />

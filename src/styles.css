@@ -280,43 +280,43 @@ button.go:active{box-shadow:0 1px 0 var(--green-dk)}
 .popbtn{border-radius:999px;background:var(--green)}
 .poplink{background:var(--red) !important}
 
-.hero{position:relative;width:100vw;margin-left:calc(50% - 50vw);box-sizing:border-box;padding:28px 16px 26px;
-  display:flex;flex-direction:column;align-items:center;text-align:center;overflow:hidden;
+.hero{position:relative;width:100vw;margin-left:calc(50% - 50vw);box-sizing:border-box;padding:0;display:flex;flex-direction:column;text-align:center}
+.hero-top{position:relative;background:#fff;padding:24px 16px 20px;display:flex;flex-direction:column;align-items:center}
+.hero-cloth{padding:22px 16px 24px;display:flex;flex-direction:column;align-items:center;
   background:
-    radial-gradient(ellipse 46% 38% at 50% 62%,rgba(40,8,6,.5),rgba(40,8,6,0) 100%),
-    linear-gradient(180deg,rgba(40,8,6,0) 30%,rgba(40,8,6,.45) 100%),
-    radial-gradient(ellipse 120% 90% at 50% 35%,transparent 50%,rgba(40,8,6,.3) 100%),
+    linear-gradient(180deg,rgba(40,8,6,.18),rgba(40,8,6,0) 30%,rgba(40,8,6,.25) 100%),
     repeating-linear-gradient(0deg,rgba(176,32,28,.55) 0 22px,transparent 22px 44px),
     repeating-linear-gradient(90deg,rgba(176,32,28,.55) 0 22px,transparent 22px 44px),
     #f6f3ee}
 .hero-acct{position:absolute;top:12px;right:16px;z-index:2}
 .hero .acct{padding:0}
-.hero .acct-btn{background:#fff;color:var(--ink);border-radius:999px;box-shadow:0 4px 14px rgba(40,8,6,.25)}
-.hero .acct-who{background:#fff;padding:7px 12px;border-radius:999px;color:var(--ink);box-shadow:0 4px 14px rgba(40,8,6,.25)}
-.hero .acct .linkbtn{background:#fff;padding:7px 12px;border-radius:999px;text-decoration:none;color:var(--red);box-shadow:0 4px 14px rgba(40,8,6,.25)}
-/* badge: match + hand-lettered name, centered as one group */
-.badge{width:150px;height:150px;border-radius:50%;flex:0 0 auto;position:relative;display:flex;align-items:center;justify-content:center;gap:5px;
-  background:radial-gradient(circle at 35% 30%,#2c6a50,var(--green) 60%,var(--green-dk));
-  box-shadow:0 14px 28px rgba(40,8,6,.45),inset 0 2px 0 rgba(255,255,255,.16),inset 0 -6px 14px rgba(0,0,0,.28)}
-.badge::before{content:"";position:absolute;inset:8px;border-radius:50%;border:1.5px dashed rgba(255,255,255,.4)}
-.badge .match{width:14px;height:40px;flex:0 0 auto;margin-left:-4px}
-.badge .match .stick{left:5px;top:11px;height:29px;width:4px;background:#e6d3ac;border:0}
-.badge .match .head{left:0;top:0;width:14px;height:15px}
-.badge h1{font-family:'Oswald',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#f6efe0;font-size:30px;line-height:1;margin:0;text-shadow:0 2px 0 rgba(0,0,0,.25)}
-.hero-title{margin:16px 0 0;font-family:var(--ui);font-weight:800;font-size:clamp(26px,4vw,38px);letter-spacing:-.01em;line-height:1;color:#fff;text-shadow:0 2px 14px rgba(40,6,4,.8);text-transform:none}
-.hero-search{max-width:520px;font-size:16px;padding:13px 18px;margin:16px 0 0;border:0;box-shadow:0 8px 22px rgba(40,8,6,.3)}
+.hero .acct-btn{background:#fff;color:var(--ink);border:1px solid var(--stock-dk);border-radius:999px;box-shadow:none}
+.hero .acct-who{background:#fff;padding:7px 12px;border:1px solid var(--stock-dk);border-radius:999px;color:var(--ink)}
+.hero .acct .linkbtn{padding:7px 12px;text-decoration:none;color:var(--red)}
+/* logo: a little matchbook — red flap with the lit match, cream face, striker strip */
+.logo-book{width:90px;height:120px;border-radius:5px;background:#f6efe0;border:1px solid #e3d9c4;box-shadow:0 10px 22px rgba(40,8,6,.22);display:flex;flex-direction:column;overflow:hidden;flex:0 0 auto}
+.lb-flap{height:38px;background:var(--red);display:flex;align-items:center;justify-content:center}
+.lb-flap .match{position:relative;width:10px;height:26px}
+.lb-flap .match .stick{left:3px;top:8px;width:4px;height:18px;background:#f6efe0;border:0;border-radius:2px}
+.lb-flap .match .head{left:0;top:0;width:10px;height:11px}
+.lb-face{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+.lb-face h1{font-family:'Oswald',sans-serif;font-weight:700;font-size:23px;letter-spacing:.06em;line-height:1;color:var(--green);text-transform:uppercase;margin:0}
+.lb-face span{font-family:'Oswald',sans-serif;font-weight:600;font-size:8px;letter-spacing:.3em;color:var(--red);text-transform:uppercase;padding-left:.3em}
+.lb-strike{height:12px;background:repeating-linear-gradient(45deg,#1c1712 0 2px,#4a3f35 2px 4px)}
+.hero-title{margin:14px 0 0;font-family:var(--ui);font-weight:800;font-size:clamp(24px,3.6vw,34px);letter-spacing:-.01em;line-height:1.05;color:var(--ink)}
+.hero-lede{max-width:560px;margin:8px 0 0;font-size:15px;line-height:1.45;color:#3d4541}
+.hero-search{max-width:520px;font-size:16px;padding:13px 18px;margin:0;border:0;box-shadow:0 8px 22px rgba(40,8,6,.3)}
 .hero-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px}
 .pill{font-family:var(--ui);font-weight:600;font-size:13px;letter-spacing:.02em;border:1px solid var(--stock-dk);border-radius:999px;padding:10px 16px;background:#fff;color:var(--ink);cursor:pointer;box-shadow:0 4px 12px rgba(40,8,6,.2)}
 .pill:hover{background:var(--green);border-color:var(--green);color:#fff}
 .pill-red{background:var(--red);border-color:var(--red);color:#fff}
 .pill-red:hover{background:var(--red-dk);border-color:var(--red-dk)}
-.hero-lede{max-width:600px;margin:10px 0 0;font-size:15px;line-height:1.45;font-weight:500;color:#fff;text-shadow:0 1px 2px rgba(40,6,4,.9),0 2px 12px rgba(40,6,4,.8)}
 @media(max-width:700px){
-  .hero{padding:52px 14px 20px}
-  .badge{width:124px;height:124px}
-  .badge h1{font-size:22px}
-  .hero-lede{font-size:13.5px}
-  .hero-title{margin-top:12px}
+  .hero-top{padding-top:52px}
+  .logo-book{width:78px;height:104px}
+  .lb-flap{height:32px}
+  .lb-face h1{font-size:20px}
+  .hero-lede{font-size:14px}
 }
 .addtoggle{width:100%;display:flex;justify-content:space-between;align-items:center;font-family:var(--ui);font-weight:700;font-size:14px;padding:12px 14px;border:1px dashed #cfcac1;border-radius:12px;background:#fff;color:var(--ink);cursor:pointer}
 .addtoggle:hover{border-color:var(--red);color:var(--red)}
