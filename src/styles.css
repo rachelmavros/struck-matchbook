@@ -354,3 +354,13 @@ button.go:active{box-shadow:0 1px 0 var(--green-dk)}
 .pop-photos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-bottom:8px;position:relative}
 .pop-photos img{width:100%;height:86px;object-fit:cover;border-radius:6px;cursor:zoom-in;background:#f0eeea}
 .pop-more{position:absolute;right:4px;bottom:4px;border:0;border-radius:999px;background:rgba(23,32,27,.75);color:#fff;font-family:var(--ui);font-size:12px;font-weight:600;padding:3px 8px;cursor:pointer}
+
+.pager-bottom{border-top:1px solid var(--stock-dk);padding-top:12px;margin-top:4px}
+
+/* photo pins: square thumbnail of the newest matchbook, ring colored by type */
+.pin-photo{width:40px;height:40px;border-radius:7px;overflow:hidden;border:2.5px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.45);background:#eee;outline:2px solid var(--green)}
+.pin-photo img{width:100%;height:100%;object-fit:cover;display:block}
+.pin-photo.type-bar{outline-color:#c9a03d}.pin-photo.type-restaurant{outline-color:#4a8a5e}.pin-photo.type-coffee_shop{outline-color:#8b5a3c}
+.pin-photo.type-hotel{outline-color:#2d5a8a}.pin-photo.type-theater{outline-color:#8a3d7a}.pin-photo.wish{outline-color:var(--red)}
+.map-toggle{font-family:var(--ui);font-weight:600;font-size:12.5px;padding:8px 14px;border:0;border-radius:999px;background:#fff;color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.25);cursor:pointer}
+.map-toggle:hover{background:var(--green);color:#fff}

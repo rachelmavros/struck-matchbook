@@ -47,7 +47,7 @@ function urlToCanvas(url) {
   })
 }
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 15
 const TYPES = ['bar', 'restaurant', 'coffee_shop', 'hotel', 'theater', 'other']
 const TYPE_LABELS = { coffee_shop: 'Coffee Shop', bar: 'Bar', restaurant: 'Restaurant', hotel: 'Hotel', theater: 'Theater', other: 'Other' }
 const typeLabel = (t) => TYPE_LABELS[t] || cap(t)
@@ -137,6 +137,9 @@ export default function App() {
   const [candidates, setCandidates] = useState({}) // pendingId -> results | 'loading'
   const [assigning, setAssigning] = useState(null)  // pendingId currently being saved
   const [filters, setFilters] = useState({ view: 'all', type: 'all', hoods: [], q: '' }) // hoods: [] = all
+  const [photoPins, setPhotoPins] = useState(() => {
+    try { return localStorage.getItem('struck-photo-pins') === '1' } catch { return false }
+  })
   const [page, setPage] = useState(0) // results list is shown PAGE_SIZE spots at a time
   const [status, setStatus] = useState('')
   const [staged, setStaged] = useState(null)
@@ -146,6 +149,7 @@ export default function App() {
   const [trash, setTrash] = useState({ spots: [], photos: [] })
 
   const mapEl = useRef(null)
+  const photoBtnRef = useRef(null)
   const fileRef = useRef(null)
   const mapRef = useRef(null)
   const layerRef = useRef(null)
@@ -168,19 +172,36 @@ export default function App() {
     // Stadia authorizes by domain (add the site's domain in the Stadia dashboard; localhost works
     // without it), so no key ships to the browser. If its tiles are refused before any load,
     // fall back to Esri's keyless gray canvas plus its street-name reference layer.
-    const stadia = L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png', {
-      maxZoom: 20, attribution: '© Stadia Maps © OpenMapTiles © OpenStreetMap contributors',
-    }).addTo(map)
-    let stadiaLoaded = false, stadiaErrors = 0
-    stadia.on('tileload', () => { stadiaLoaded = true })
-    stadia.on('tileerror', () => {
-      if (stadiaLoaded || ++stadiaErrors < 3) return
-      map.removeLayer(stadia)
-      const esri = (layer) => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${layer}/MapServer/tile/{z}/{y}/{x}`
-      L.tileLayer(esri('World_Light_Gray_Base'), { maxZoom: 20, maxNativeZoom: 16, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors' }).addTo(map)
-      L.tileLayer(esri('World_Light_Gray_Reference'), { maxZoom: 20, maxNativeZoom: 16, pane: 'shadowPane' }).addTo(map)
-    })
+    // Stadia rejects unregistered domains with 401 "error" tiles that still render as images,
+    // so tile error events can't detect it — probe one tile first and only use Stadia if it's OK.
+    const STADIA = 'https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png'
+    const esri = (layer) => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${layer}/MapServer/tile/{z}/{y}/{x}`
+    fetch('https://tiles.stadiamaps.com/tiles/alidade_smooth/12/1051/1522.png')
+      .then((r) => r.ok)
+      .catch(() => false)
+      .then((ok) => {
+        if (mapRef.current !== map) return // map was torn down (unmount / StrictMode remount)
+        if (ok) {
+          L.tileLayer(STADIA, { maxZoom: 20, attribution: '© Stadia Maps © OpenMapTiles © OpenStreetMap contributors' }).addTo(map)
+        } else {
+          L.tileLayer(esri('World_Light_Gray_Base'), { maxZoom: 20, maxNativeZoom: 16, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors' }).addTo(map)
+          L.tileLayer(esri('World_Light_Gray_Reference'), { maxZoom: 20, maxNativeZoom: 16, pane: 'shadowPane' }).addTo(map)
+        }
+      })
     layerRef.current = L.layerGroup().addTo(map)
+
+    // Map control: switch the pins between dots and square photos of each spot's newest matchbook.
+    const PhotoToggle = L.Control.extend({
+      onAdd() {
+        const b = L.DomUtil.create('button', 'map-toggle')
+        b.type = 'button'
+        L.DomEvent.disableClickPropagation(b)
+        b.onclick = () => setPhotoPins((v) => !v)
+        photoBtnRef.current = b
+        return b
+      },
+    })
+    new PhotoToggle({ position: 'topright' }).addTo(map)
 
     const updateLabels = () => {
       // Labels show immediately for a small filtered set (e.g. one neighborhood), otherwise
@@ -361,6 +382,13 @@ export default function App() {
   const sortedVisible = useMemo(() => visible.slice().sort((a, b) => a.name.localeCompare(b.name)), [visible])
   const pageCount = Math.max(1, Math.ceil(sortedVisible.length / PAGE_SIZE))
   const pageSpots = sortedVisible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  const pageLabel = `${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, sortedVisible.length)}`
+  const pagerBtns = pageCount > 1 && (
+    <span className="pager-btns">
+      <button className="iact" aria-label="Previous page" disabled={page === 0} onClick={() => setPage((n) => n - 1)}>‹</button>
+      <button className="iact" aria-label="Next page" disabled={page >= pageCount - 1} onClick={() => setPage((n) => n + 1)}>›</button>
+    </span>
+  )
 
   /* ----- markers ----- */
   useEffect(() => {
@@ -371,7 +399,10 @@ export default function App() {
     visible.forEach((s) => {
       if (s.lat == null || s.lng == null) return
       const cls = s.wishlist ? 'wish' : (s.approx ? 'approx' : `type-${s.type}`)
-      const icon = L.divIcon({ className: '', html: `<div class="pin ${cls}"></div>`, iconSize: [16, 16], iconAnchor: [8, 16] })
+      const newest = s.photos[0]
+      const icon = photoPins && newest
+        ? L.divIcon({ className: '', html: `<div class="pin-photo ${cls}"><img src="${esc(newest.public_url)}" alt=""></div>`, iconSize: [44, 44], iconAnchor: [22, 44] })
+        : L.divIcon({ className: '', html: `<div class="pin ${cls}"></div>`, iconSize: [16, 16], iconAnchor: [8, 16] })
       const m = L.marker([s.lat, s.lng], { icon })
       const meta = shortAddress(s.address, s.neighborhood)
       // Popup shows the matchbook photos right away; tapping one opens the full gallery there.
@@ -390,7 +421,7 @@ export default function App() {
         `<a class="popbtn poplink" href="${mapsUrl(s.name, s.address)}" target="_blank" rel="noopener">Google Maps ↗</a>`,
         { minWidth: 230, maxWidth: 260 }
       )
-      m.bindTooltip(s.name, { permanent: true, direction: 'right', offset: [4, -9], className: 'mb-label' })
+      m.bindTooltip(s.name, { permanent: true, direction: 'right', offset: photoPins && s.photos[0] ? [16, -24] : [4, -9], className: 'mb-label' })
       layer.addLayer(m); ms.push(m)
     })
     if (ms.length) {
@@ -417,7 +448,12 @@ export default function App() {
       baseZoomRef.current = map.getZoom()
     }
     map._updateLabels?.()
-  }, [visible])
+  }, [visible, photoPins])
+
+  useEffect(() => {
+    if (photoBtnRef.current) photoBtnRef.current.textContent = photoPins ? 'Show dots' : 'Show photos'
+    try { localStorage.setItem('struck-photo-pins', photoPins ? '1' : '0') } catch { /* private mode */ }
+  }, [photoPins])
 
   /* ----- upload + read -> build a review list (nothing saved yet) ----- */
   function onFile(e) {
@@ -795,14 +831,8 @@ export default function App() {
           {/* ---------- results: map list ---------- */}
           {enriched.length > 0 && (
             <div className="results-h pager">
-              <span>{visible.length} spot{visible.length === 1 ? '' : 's'}
-                {pageCount > 1 && ` · ${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, visible.length)}`}</span>
-              {pageCount > 1 && (
-                <span className="pager-btns">
-                  <button className="iact" aria-label="Previous page" disabled={page === 0} onClick={() => setPage((n) => n - 1)}>‹</button>
-                  <button className="iact" aria-label="Next page" disabled={page >= pageCount - 1} onClick={() => setPage((n) => n + 1)}>›</button>
-                </span>
-              )}
+              <span>{visible.length} spot{visible.length === 1 ? '' : 's'}{pageCount > 1 && ` · ${pageLabel}`}</span>
+              {pagerBtns}
             </div>
           )}
           {filters.q && visible.length === 0 && <div className="hint-sm">No spots match “{filters.q}”.</div>}
@@ -833,6 +863,12 @@ export default function App() {
                 onClick={(e) => e.stopPropagation()}>Open in Google Maps ↗</a>
             </div>
           ))}
+          {pageCount > 1 && (
+            <div className="results-h pager pager-bottom">
+              <span>{pageLabel} of {sortedVisible.length}</span>
+              {pagerBtns}
+            </div>
+          )}
         </div>
 
         <div id="map" className="map-slot" ref={mapEl} />
