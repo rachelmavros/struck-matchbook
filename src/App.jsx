@@ -47,6 +47,7 @@ function urlToCanvas(url) {
   })
 }
 
+const PAGE_SIZE = 20
 const TYPES = ['bar', 'restaurant', 'coffee_shop', 'hotel', 'theater', 'other']
 const TYPE_LABELS = { coffee_shop: 'Coffee Shop', bar: 'Bar', restaurant: 'Restaurant', hotel: 'Hotel', theater: 'Theater', other: 'Other' }
 const typeLabel = (t) => TYPE_LABELS[t] || cap(t)
@@ -135,7 +136,8 @@ export default function App() {
   const [pending, setPending] = useState([])       // couldn't place -> manual search
   const [candidates, setCandidates] = useState({}) // pendingId -> results | 'loading'
   const [assigning, setAssigning] = useState(null)  // pendingId currently being saved
-  const [filters, setFilters] = useState({ view: 'all', type: 'all', hood: 'all' })
+  const [filters, setFilters] = useState({ view: 'all', type: 'all', hood: 'all', q: '' })
+  const [page, setPage] = useState(0) // results list is shown PAGE_SIZE spots at a time
   const [status, setStatus] = useState('')
   const [staged, setStaged] = useState(null)
   const [modalId, setModalId] = useState(null)
@@ -342,8 +344,15 @@ export default function App() {
     if (filters.view === 'visited' && !s.visited) return false
     if (filters.type !== 'all' && s.type !== filters.type) return false
     if (filters.hood !== 'all' && hoodLabel(s.neighborhood) !== filters.hood) return false
+    if (filters.q && !norm([s.name, s.address, s.neighborhood].join(' ')).includes(norm(filters.q))) return false
     return true
   }), [enriched, filters])
+
+  // Back to the first page whenever the filters or search change.
+  useEffect(() => { setPage(0) }, [filters])
+  const sortedVisible = useMemo(() => visible.slice().sort((a, b) => a.name.localeCompare(b.name)), [visible])
+  const pageCount = Math.max(1, Math.ceil(sortedVisible.length / PAGE_SIZE))
+  const pageSpots = sortedVisible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   /* ----- markers ----- */
   useEffect(() => {
@@ -475,7 +484,8 @@ export default function App() {
   async function handleCropConfirm(newBbox) {
     const target = cropTarget
     if (!target) return
-    const cropped = cropNormalized(target.canvas, newBbox)
+    // No padding: a hand-drawn crop should come out exactly as drawn.
+    const cropped = cropNormalized(target.canvas, newBbox, 0)
     const file = await canvasToFile(cropped, 'matchbook.jpg')
     const url = URL.createObjectURL(file)
     if (target.kind === 'recrop') {
@@ -739,6 +749,9 @@ export default function App() {
 
           {/* ---------- filters ---------- */}
           <div className="filters">
+            <input className="searchbox" type="search" placeholder="Search a bar, restaurant, neighborhood…"
+              aria-label="Search spots" value={filters.q}
+              onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
             <div className="viewtabs">
               {['all', 'wishlist', 'visited'].map((v) => (
                 <button key={v} className={'vtab' + (filters.view === v ? ' on' : '')}
@@ -764,8 +777,20 @@ export default function App() {
           </div>
 
           {/* ---------- results: map list ---------- */}
-          {enriched.length > 0 && <div className="results-h">{visible.length} spot{visible.length === 1 ? '' : 's'}</div>}
-          {visible.slice().sort((a, b) => a.name.localeCompare(b.name)).map((s) => (
+          {enriched.length > 0 && (
+            <div className="results-h pager">
+              <span>{visible.length} spot{visible.length === 1 ? '' : 's'}
+                {pageCount > 1 && ` · ${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, visible.length)}`}</span>
+              {pageCount > 1 && (
+                <span className="pager-btns">
+                  <button className="iact" aria-label="Previous page" disabled={page === 0} onClick={() => setPage((n) => n - 1)}>‹</button>
+                  <button className="iact" aria-label="Next page" disabled={page >= pageCount - 1} onClick={() => setPage((n) => n + 1)}>›</button>
+                </span>
+              )}
+            </div>
+          )}
+          {filters.q && visible.length === 0 && <div className="hint-sm">No spots match “{filters.q}”.</div>}
+          {pageSpots.map((s) => (
             <div className="spot" key={s.id}>
               <div className="top" onClick={() => { setModalId(s.id); setGIndex(0) }}>
                 {s.photos[0]
