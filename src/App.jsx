@@ -706,9 +706,8 @@ export default function App() {
           <div className="match"><div className="stick" /><div className="head flame" /></div>
           <h1>Struck</h1>
         </div>
-        <div className="hero-card">
-          <p className="hero-lede">Chicago’s matchbook map. Add a photo of a matchbook: it reads the covers, you review the matches, and each spot drops on the map. Dense collages get split up and cropped automatically. Can’t read one? Search and pin it yourself.</p>
-          <input className="searchbox hero-search" type="search" placeholder="Search a bar, restaurant, neighborhood…"
+        <h2 className="hero-title">Chicago Matchbook Finder</h2>
+        <input className="searchbox hero-search" type="search" placeholder="Search a bar, restaurant, neighborhood…"
             aria-label="Search spots" value={filters.q}
             onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
           <div className="hero-acts">
@@ -716,10 +715,11 @@ export default function App() {
             <button className="pill" onClick={() => { setFilters((f) => ({ ...f, view: 'wishlist' })); panelRef.current?.scrollIntoView({ behavior: 'smooth' }) }}>♥ View favorites</button>
             <button className="pill pill-red" onClick={() => { setAddOpen(true); fileRef.current?.click() }}>+ Add your own matchbook</button>
           </div>
-        </div>
       </header>
 
       <div className="strip" />
+
+      <p className="intro">Add a photo of a matchbook: it reads the covers, you review the matches, and each spot drops on the map. Dense collages get split up and cropped automatically. Can’t read one? Search and pin it yourself.</p>
 
       <div className="cols">
         <div className="panel panel-slot" ref={panelRef}>
