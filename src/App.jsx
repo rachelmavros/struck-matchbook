@@ -144,6 +144,7 @@ export default function App() {
   const [trash, setTrash] = useState({ spots: [], photos: [] })
 
   const mapEl = useRef(null)
+  const fileRef = useRef(null)
   const mapRef = useRef(null)
   const layerRef = useRef(null)
   const timers = useRef({})
@@ -626,15 +627,21 @@ export default function App() {
 
   return (
     <div className="wrap">
-      <header>
-        <div className="headtop">
-          <div className="brandrow">
-            <div className="match"><div className="stick" /><div className="head flame" /></div>
-            <h1>Struck<span className="sub">Chicago matchbook map</span></h1>
-          </div>
+      {/* Hero: a checkered tablecloth with the round "Struck" badge on it. */}
+      <header className="hero">
+        <div className="hero-acct">
           <HeaderAccount profile={profile} onOpen={() => setAccountOpen(true)} onSignOut={handleSignOut} />
         </div>
-        <p className="lede">Add a photo of a matchbook. It reads the covers, you review the matches, and each spot drops on the map. Dense collages get split into sections and cropped automatically. Can’t read one? Search and pin it yourself.</p>
+        <div className="badge">
+          <div className="match"><div className="stick" /><div className="head flame" /></div>
+          <h1>Struck</h1>
+        </div>
+        <div className="hero-title">Matchbooks <span>&amp;</span> stuff</div>
+        <div className="hero-sub">Chicago’s matchbook map</div>
+        <div className="hero-acts">
+          <button className="pill" onClick={() => mapEl.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>See the map</button>
+          <button className="pill" onClick={() => fileRef.current?.click()}>Add one</button>
+        </div>
       </header>
 
       <div className="strip" />
@@ -642,8 +649,9 @@ export default function App() {
       <div className="cols">
         <div className="panel panel-slot">
           <h2>Add matchbooks</h2>
+          <p className="lede">Snap a matchbook, or a whole pile. It reads the covers, you check the matches, and each spot drops on the map.</p>
           <label className={'drop' + (staged ? ' has' : '')}>
-            <input type="file" accept="image/*" hidden onChange={onFile} />
+            <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFile} />
             {staged
               ? <img src={staged.url} alt="staged matchbook" />
               : <div className="hint"><b>Tap to add a photo</b><br />a single cover or a full spread</div>}
