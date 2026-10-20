@@ -14,6 +14,23 @@ import {
 import CropEditor from './CropEditor'
 
 const CHI = [41.8781, -87.6298]
+
+// Visual themes. 'classic' is the original look (no overrides); the rest live in src/themes.css.
+const THEMES = [
+  { id: 'noir', label: 'Noir', dark: true },
+  { id: 'neon', label: 'Neon', dark: true },
+  { id: 'poster', label: 'Poster', dark: false },
+  { id: 'classic', label: 'Classic', dark: false },
+]
+const ESRI = (layer) => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${layer}/MapServer/tile/{z}/{y}/{x}`
+const basemapFor = (id) => ESRI(THEMES.find((t) => t.id === id)?.dark ? 'World_Dark_Gray_Base' : 'World_Light_Gray_Base')
+function initialTheme() {
+  try {
+    const t = localStorage.getItem('struck-theme')
+    if (THEMES.some((x) => x.id === t)) return t
+  } catch { /* private mode */ }
+  return 'noir'
+}
 const CHI_FIT_RADIUS_MI = 75 // outlier pins (e.g. a single NY spot) shouldn't zoom the map out past Chicago
 const MIN_FIT_ZOOM = 11 // don't let a spread-out pin set zoom further out than "all of Chicago proper"
 
@@ -142,6 +159,8 @@ export default function App() {
   const [gIndex, setGIndex] = useState(0)
   const [cropTarget, setCropTarget] = useState(null) // { kind: 'draft'|'pending'|'recrop', id, canvas, bbox }
   const [trash, setTrash] = useState({ spots: [], photos: [] })
+  const [theme, setTheme] = useState(initialTheme)
+  const tileRef = useRef(null)
 
   const mapEl = useRef(null)
   const mapRef = useRef(null)
@@ -166,7 +185,7 @@ export default function App() {
     // Canvas is free, keyless, and close to that same minimalist look. Its own tiles
     // only go up to zoom 16 (maxNativeZoom) — Leaflet upscales them past that so you
     // can still zoom in closer to street level, at the cost of a blurrier basemap.
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    tileRef.current = L.tileLayer(basemapFor(initialTheme()), {
       maxZoom: 19, maxNativeZoom: 16, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
     }).addTo(map)
     layerRef.current = L.layerGroup().addTo(map)
@@ -207,6 +226,16 @@ export default function App() {
     return () => { authSub?.subscription?.unsubscribe?.(); map.remove() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Apply the chosen theme: stamp it on <html>, swap the basemap to match (dark themes get the
+  // dark gray canvas), and let Leaflet re-measure since some themes resize the map container.
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    try { localStorage.setItem('struck-theme', theme) } catch { /* private mode */ }
+    tileRef.current?.setUrl(basemapFor(theme))
+    const t = setTimeout(() => mapRef.current?.invalidateSize(), 60)
+    return () => clearTimeout(t)
+  }, [theme])
 
   async function refresh(userId) {
     try {
@@ -797,6 +826,7 @@ export default function App() {
         <a className="footer-link" href="/terms.html">Terms of Service</a>
       </footer>
 
+      <ThemeSwitcher theme={theme} onChange={setTheme} />
       <InstallPrompt />
 
       {accountOpen && (
@@ -1392,6 +1422,18 @@ function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+// Floating "Look" picker for trying out the visual themes. Remove (or gate to admins) once one is chosen.
+function ThemeSwitcher({ theme, onChange }) {
+  return (
+    <div className="themebar" role="group" aria-label="Choose a look">
+      <span className="themebar-l">Look</span>
+      {THEMES.map((t) => (
+        <button key={t.id} className={'themebtn' + (theme === t.id ? ' on' : '')} onClick={() => onChange(t.id)}>{t.label}</button>
+      ))}
     </div>
   )
 }
