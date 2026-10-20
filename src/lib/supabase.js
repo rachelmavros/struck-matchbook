@@ -56,6 +56,16 @@ export async function signInWithPassword(email, password) {
   return data.user
 }
 
+// Google sign-in. Redirects to Google and back; supabase-js picks the session up from the
+// return URL on load. Needs the Google provider enabled in Supabase (Auth → Providers).
+export async function signInWithGoogle() {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: signInRedirectTo() },
+  })
+  if (error) throw error
+}
+
 // Send a password-reset email. The link brings the user back to the site with
 // a recovery session active; the app then shows a "set a new password" form.
 export async function sendPasswordReset(email) {
