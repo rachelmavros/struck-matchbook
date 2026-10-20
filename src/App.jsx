@@ -14,23 +14,6 @@ import {
 import CropEditor from './CropEditor'
 
 const CHI = [41.8781, -87.6298]
-
-// Visual themes. 'classic' is the original look (no overrides); the rest live in src/themes.css.
-const THEMES = [
-  { id: 'noir', label: 'Noir', dark: true },
-  { id: 'neon', label: 'Neon', dark: true },
-  { id: 'poster', label: 'Poster', dark: false },
-  { id: 'classic', label: 'Classic', dark: false },
-]
-const ESRI = (layer) => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${layer}/MapServer/tile/{z}/{y}/{x}`
-const basemapFor = (id) => ESRI(THEMES.find((t) => t.id === id)?.dark ? 'World_Dark_Gray_Base' : 'World_Light_Gray_Base')
-function initialTheme() {
-  try {
-    const t = localStorage.getItem('struck-theme')
-    if (THEMES.some((x) => x.id === t)) return t
-  } catch { /* private mode */ }
-  return 'noir'
-}
 const CHI_FIT_RADIUS_MI = 75 // outlier pins (e.g. a single NY spot) shouldn't zoom the map out past Chicago
 const MIN_FIT_ZOOM = 11 // don't let a spread-out pin set zoom further out than "all of Chicago proper"
 
@@ -159,10 +142,9 @@ export default function App() {
   const [gIndex, setGIndex] = useState(0)
   const [cropTarget, setCropTarget] = useState(null) // { kind: 'draft'|'pending'|'recrop', id, canvas, bbox }
   const [trash, setTrash] = useState({ spots: [], photos: [] })
-  const [theme, setTheme] = useState(initialTheme)
-  const tileRef = useRef(null)
 
   const mapEl = useRef(null)
+  const fileRef = useRef(null)
   const mapRef = useRef(null)
   const layerRef = useRef(null)
   const timers = useRef({})
@@ -185,7 +167,7 @@ export default function App() {
     // Canvas is free, keyless, and close to that same minimalist look. Its own tiles
     // only go up to zoom 16 (maxNativeZoom) — Leaflet upscales them past that so you
     // can still zoom in closer to street level, at the cost of a blurrier basemap.
-    tileRef.current = L.tileLayer(basemapFor(initialTheme()), {
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19, maxNativeZoom: 16, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
     }).addTo(map)
     layerRef.current = L.layerGroup().addTo(map)
@@ -226,16 +208,6 @@ export default function App() {
     return () => { authSub?.subscription?.unsubscribe?.(); map.remove() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // Apply the chosen theme: stamp it on <html>, swap the basemap to match (dark themes get the
-  // dark gray canvas), and let Leaflet re-measure since some themes resize the map container.
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    try { localStorage.setItem('struck-theme', theme) } catch { /* private mode */ }
-    tileRef.current?.setUrl(basemapFor(theme))
-    const t = setTimeout(() => mapRef.current?.invalidateSize(), 60)
-    return () => clearTimeout(t)
-  }, [theme])
 
   async function refresh(userId) {
     try {
@@ -655,15 +627,21 @@ export default function App() {
 
   return (
     <div className="wrap">
-      <header>
-        <div className="headtop">
-          <div className="brandrow">
-            <div className="match"><div className="stick" /><div className="head flame" /></div>
-            <h1>Struck<span className="sub">Chicago matchbook map</span></h1>
-          </div>
+      {/* Hero: a checkered tablecloth with the round "Struck" badge on it. */}
+      <header className="hero">
+        <div className="hero-acct">
           <HeaderAccount profile={profile} onOpen={() => setAccountOpen(true)} onSignOut={handleSignOut} />
         </div>
-        <p className="lede">Add a photo of a matchbook. It reads the covers, you review the matches, and each spot drops on the map. Dense collages get split into sections and cropped automatically. Can’t read one? Search and pin it yourself.</p>
+        <div className="badge">
+          <div className="match"><div className="stick" /><div className="head flame" /></div>
+          <h1>Struck</h1>
+        </div>
+        <div className="hero-title">Matchbooks <span>&amp;</span> stuff</div>
+        <div className="hero-sub">Chicago’s matchbook map</div>
+        <div className="hero-acts">
+          <button className="pill" onClick={() => mapEl.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>See the map</button>
+          <button className="pill" onClick={() => fileRef.current?.click()}>Add one</button>
+        </div>
       </header>
 
       <div className="strip" />
@@ -671,8 +649,9 @@ export default function App() {
       <div className="cols">
         <div className="panel panel-slot">
           <h2>Add matchbooks</h2>
+          <p className="lede">Snap a matchbook, or a whole pile. It reads the covers, you check the matches, and each spot drops on the map.</p>
           <label className={'drop' + (staged ? ' has' : '')}>
-            <input type="file" accept="image/*" hidden onChange={onFile} />
+            <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFile} />
             {staged
               ? <img src={staged.url} alt="staged matchbook" />
               : <div className="hint"><b>Tap to add a photo</b><br />a single cover or a full spread</div>}
@@ -826,7 +805,6 @@ export default function App() {
         <a className="footer-link" href="/terms.html">Terms of Service</a>
       </footer>
 
-      <ThemeSwitcher theme={theme} onChange={setTheme} />
       <InstallPrompt />
 
       {accountOpen && (
@@ -1422,18 +1400,6 @@ function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
           </>
         )}
       </div>
-    </div>
-  )
-}
-
-// Floating "Look" picker for trying out the visual themes. Remove (or gate to admins) once one is chosen.
-function ThemeSwitcher({ theme, onChange }) {
-  return (
-    <div className="themebar" role="group" aria-label="Choose a look">
-      <span className="themebar-l">Look</span>
-      {THEMES.map((t) => (
-        <button key={t.id} className={'themebtn' + (theme === t.id ? ' on' : '')} onClick={() => onChange(t.id)}>{t.label}</button>
-      ))}
     </div>
   )
 }
