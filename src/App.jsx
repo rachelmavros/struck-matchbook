@@ -138,8 +138,9 @@ export default function App() {
   const [assigning, setAssigning] = useState(null)  // pendingId currently being saved
   const [filters, setFilters] = useState({ view: 'all', type: 'all', hoods: [], q: '' }) // hoods: [] = all
   const [photoPins, setPhotoPins] = useState(() => {
-    try { return localStorage.getItem('struck-photo-pins') === '1' } catch { return false }
+    try { return localStorage.getItem('struck-photo-pins') !== '0' } catch { return true } // photos are the default
   })
+  const [addOpen, setAddOpen] = useState(false)
   const [page, setPage] = useState(0) // results list is shown PAGE_SIZE spots at a time
   const [status, setStatus] = useState('')
   const [staged, setStaged] = useState(null)
@@ -151,6 +152,7 @@ export default function App() {
   const mapEl = useRef(null)
   const photoBtnRef = useRef(null)
   const fileRef = useRef(null)
+  const panelRef = useRef(null)
   const mapRef = useRef(null)
   const layerRef = useRef(null)
   const timers = useRef({})
@@ -166,7 +168,7 @@ export default function App() {
     // per pinch/scroll amount.
     const map = L.map(mapEl.current, {
       scrollWheelZoom: true, zoomSnap: 0.25, wheelPxPerZoomLevel: 20, maxZoom: 20,
-    }).setView(CHI, 12)
+    }).setView(CHI, 13)
 
     // Basemap: Stadia "Alidade Smooth" — clean gray, real street names, retina tiles, zoom to 20.
     // Stadia authorizes by domain (add the site's domain in the Stadia dashboard; localhost works
@@ -380,6 +382,7 @@ export default function App() {
   // Back to the first page whenever the filters or search change.
   useEffect(() => { setPage(0) }, [filters])
   const sortedVisible = useMemo(() => visible.slice().sort((a, b) => a.name.localeCompare(b.name)), [visible])
+  const showAdd = addOpen || !!staged || review.length > 0 || pending.length > 0 || !!status
   const pageCount = Math.max(1, Math.ceil(sortedVisible.length / PAGE_SIZE))
   const pageSpots = sortedVisible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
   const pageLabel = `${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, sortedVisible.length)}`
@@ -437,8 +440,9 @@ export default function App() {
       if (filters.hoods.length === 0) {
         // City-wide view: keep the true Chicago center, just pick a zoom that fits the pins.
         let zoom = map.getBoundsZoom(bounds, false, undefined, undefined)
-        zoom = Math.min(zoom, 16)
-        if (zoom < MIN_FIT_ZOOM) zoom = MIN_FIT_ZOOM
+        // One step closer than "fits everything" — the pins are dense downtown, so start a bit tighter.
+        zoom = Math.min(zoom + 1, 16)
+        if (zoom < MIN_FIT_ZOOM + 1) zoom = MIN_FIT_ZOOM + 1
         map.setView(CHI, zoom, { animate: false })
       } else {
         // A specific neighborhood is selected — center on its actual pins instead.
@@ -460,6 +464,8 @@ export default function App() {
     const f = e.target.files[0]
     if (!f) return
     setStaged({ file: f, url: URL.createObjectURL(f) })
+    setAddOpen(true)
+    setTimeout(() => panelRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
   }
 
   async function handleUpload() {
@@ -691,7 +697,7 @@ export default function App() {
 
   return (
     <div className="wrap">
-      {/* Hero: a checkered tablecloth with the round "Struck" badge on it. */}
+      {/* Hero: tablecloth band with the badge, how-it-works copy, search and the main actions. */}
       <header className="hero">
         <div className="hero-acct">
           <HeaderAccount profile={profile} onOpen={() => setAccountOpen(true)} onSignOut={handleSignOut} />
@@ -700,22 +706,29 @@ export default function App() {
           <div className="match"><div className="stick" /><div className="head flame" /></div>
           <h1>Struck</h1>
         </div>
-        <div className="hero-title">Matchbooks <span>&amp;</span> stuff</div>
-        <div className="hero-sub">Chicago’s matchbook map</div>
-        <div className="hero-acts">
-          <button className="pill" onClick={() => mapEl.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>See the map</button>
-          <button className="pill" onClick={() => fileRef.current?.click()}>Add one</button>
+        <div className="hero-card">
+          <p className="hero-lede">Chicago’s matchbook map. Add a photo of a matchbook: it reads the covers, you review the matches, and each spot drops on the map. Dense collages get split up and cropped automatically. Can’t read one? Search and pin it yourself.</p>
+          <input className="searchbox hero-search" type="search" placeholder="Search a bar, restaurant, neighborhood…"
+            aria-label="Search spots" value={filters.q}
+            onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
+          <div className="hero-acts">
+            <button className="pill" onClick={() => mapEl.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>See the map</button>
+            <button className="pill" onClick={() => { setFilters((f) => ({ ...f, view: 'wishlist' })); panelRef.current?.scrollIntoView({ behavior: 'smooth' }) }}>♥ View favorites</button>
+            <button className="pill pill-red" onClick={() => { setAddOpen(true); fileRef.current?.click() }}>+ Add your own matchbook</button>
+          </div>
         </div>
       </header>
 
       <div className="strip" />
 
       <div className="cols">
-        <div className="panel panel-slot">
-          <h2>Add matchbooks</h2>
-          <p className="lede">Snap a matchbook, or a whole pile. It reads the covers, you check the matches, and each spot drops on the map.</p>
-          <label className={'drop' + (staged ? ' has' : '')}>
-            <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFile} />
+        <div className="panel panel-slot" ref={panelRef}>
+          <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFile} />
+          <button className="addtoggle" aria-expanded={showAdd} onClick={() => setAddOpen((o) => !o)}>
+            <span>+ Add your own matchbook</span><span aria-hidden="true">{showAdd ? '−' : '▾'}</span>
+          </button>
+          {showAdd && <div className="addbox">
+          <label className={'drop' + (staged ? ' has' : '')} onClick={(e) => { e.preventDefault(); fileRef.current?.click() }}>
             {staged
               ? <img src={staged.url} alt="staged matchbook" />
               : <div className="hint"><b>Tap to add a photo</b><br />a single cover or a full spread</div>}
@@ -801,11 +814,10 @@ export default function App() {
             </div>
           )}
 
+          </div>}
+
           {/* ---------- filters ---------- */}
           <div className="filters">
-            <input className="searchbox" type="search" placeholder="Search a bar, restaurant, neighborhood…"
-              aria-label="Search spots" value={filters.q}
-              onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
             <div className="viewtabs">
               {['all', 'wishlist', 'visited'].map((v) => (
                 <button key={v} className={'vtab' + (filters.view === v ? ' on' : '')}
