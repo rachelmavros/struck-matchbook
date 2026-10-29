@@ -5,28 +5,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Privacy Policy — Struck</title>
 <style>
-  :root{--ink:#1c1712;--red:#9e1b1f;--stock:#efe6d0;--stock-dk:#e3d7ba;--sage:#5c6b57}
+  :root{--ink:#17201b;--red:#b0201c;--stock:#ffffff;--stock-dk:#e6e3dd;--sage:#1f4d3a}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--stock);color:var(--ink);font-family:Georgia,'Spectral',serif;line-height:1.6}
+  body{margin:0;background:var(--stock);color:var(--ink);font-family:'Bricolage Grotesque',system-ui,sans-serif;line-height:1.6}
   .wrap{max-width:720px;margin:0 auto;padding:40px 20px 80px}
-  h1{font-family:'Oswald',Arial,sans-serif;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--red);font-size:28px;margin:0 0 6px}
-  .updated{font-size:13px;color:#6b5d47;margin-bottom:30px}
-  h2{font-family:'Oswald',Arial,sans-serif;font-weight:600;letter-spacing:.04em;text-transform:uppercase;font-size:15px;color:var(--sage);margin:32px 0 10px}
-  p,li{font-size:15.5px;color:#2a231c}
+  h1{font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;letter-spacing:.03em;text-transform:none;color:var(--ink);font-size:32px;font-weight:800;margin:0 0 6px}
+  .updated{font-size:13px;color:#5d6560;margin-bottom:30px}
+  h2{font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:600;letter-spacing:.04em;text-transform:uppercase;font-size:15px;color:var(--sage);margin:32px 0 10px}
+  p,li{font-size:15.5px;color:#2b3330}
   ul{padding-left:22px}
   a{color:var(--red)}
-  .back{display:inline-block;margin-bottom:24px;font-family:'Oswald',Arial,sans-serif;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#6b5d47;text-decoration:none}
+  .back{display:inline-block;margin-bottom:24px;font-family:'Bricolage Grotesque',system-ui,sans-serif;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#5d6560;text-decoration:none}
   .back:hover{color:var(--red)}
   table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
   th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--stock-dk);vertical-align:top}
-  th{font-family:'Oswald',Arial,sans-serif;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--sage)}
+  th{font-family:'Bricolage Grotesque',system-ui,sans-serif;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--sage)}
 </style>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet" />
+  <style>body::before{content:"";display:block;height:14px;background:repeating-linear-gradient(45deg,#1c1712 0 3px,#3b332b 3px 6px)}</style>
+  <link rel="icon" href="/icon-192.png" type="image/png" />
 </head>
 <body>
 <div class="wrap">
   <a class="back" href="/">&larr; Back to Struck</a>
   <h1>Privacy Policy</h1>
-  <div class="updated">Last updated October 20, 2026</div>
+  <div class="updated">Last updated October 29, 2026</div>
 
   <p>Struck ("we," "us," "the app") is a community map of Chicago matchbooks and the places they came from, at <a href="https://chicagomatchbooks.com">chicagomatchbooks.com</a>. This page explains what information we collect, why, and how it's handled.</p>
 
@@ -38,7 +41,7 @@
     <tr><td>Password</td><td>Stored as an irreversible hash by our auth provider — we never see or store it in plain text.</td></tr>
     <tr><td>Photos you upload</td><td>Matchbook cover images, read automatically to identify the place and displayed publicly once approved.</td></tr>
     <tr><td>Wishlist / been-there marks</td><td>Personalize your experience and are tied to your account.</td></tr>
-    <tr><td>Notes you post on a spot</td><td>Shared with other visitors so the map stays up to date (e.g. "closed now"). Tied to your account so you can delete them.</td></tr>
+    <tr><td>Notes you post on a spot</td><td>Shared with other visitors so the map stays up to date (e.g. "closed now"). Tied to your account so you can delete them. If you report someone else's note, we record that you reported it (so each person can report a note once); only admins see reports.</td></tr>
     <tr><td>Basic usage data</td><td>Standard web server logs (IP address, browser type) for security and debugging, via our hosting provider.</td></tr>
     <tr><td>Upload limit counter</td><td>To cap how many photos one visitor can have read per day, we keep a one-way scrambled code made from your IP address and the date, plus a count. We can't turn it back into your IP address, and it's deleted after two days.</td></tr>
   </table>
@@ -52,7 +55,7 @@
     <li><strong>Google Places</strong> (or OpenStreetMap, as a fallback) — looks up an address or business name you search or upload against, so we can plot it on the map accurately.</li>
     <li><strong>Google</strong> — handles "Continue with Google" sign-in, if you use it, and serves the website's fonts.</li>
     <li><strong>Stadia Maps and Esri</strong> — provide the map images. Your browser loads them directly from these providers, so they see your IP address and which part of the map you're viewing, like any website you visit.</li>
-    <li><strong>Vercel</strong> — hosts the website itself.</li>
+    <li><strong>Vercel</strong> — hosts the website itself, and provides Vercel Web Analytics, which counts page visits without cookies and without identifying you (we see totals like "200 visits today," not who visited).</li>
   </ul>
   <p>We do not sell your data, and we do not share it with anyone else for advertising.</p>
 
