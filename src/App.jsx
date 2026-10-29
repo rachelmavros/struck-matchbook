@@ -10,6 +10,7 @@ import {
   adminRestoreSpot, adminPurgeSpot, adminRestorePhoto, adminPurgePhoto, mergeSpots, loadTrash, loadSpots,
   loadUserLists, setUserList, loadFavoriteCounts, loadComments, addComment, deleteComment,
   loadMySubmissions, approveSpot, updateOwnSpot, norm,
+  reportComment, loadReportedNotes, dismissReports,
 } from './lib/api'
 import CropEditor from './CropEditor'
 
@@ -148,6 +149,7 @@ export default function App() {
   const [gIndex, setGIndex] = useState(0)
   const [cropTarget, setCropTarget] = useState(null) // { kind: 'draft'|'pending'|'recrop', id, canvas, bbox }
   const [trash, setTrash] = useState({ spots: [], photos: [] })
+  const [reported, setReported] = useState([])
 
   const mapEl = useRef(null)
   const photoBtnRef = useRef(null)
@@ -236,11 +238,36 @@ export default function App() {
       setUser(u)
       if (u) setProfile(await ensureProfile(u))
       if (isRecovery) { setAccountOpen(true); setRecoveryOpen(true) }
+      await carryOverLists(u)
       await refresh(u?.id)
     })()
     return () => { authSub?.subscription?.unsubscribe?.(); map.remove() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // A signed-out visitor's wishlist/been-there marks live on their anonymous session, which
+  // is replaced at sign-in. Stash them first (in localStorage, so it survives the Google
+  // redirect), then copy them onto the real account once it's signed in.
+  const CARRY_KEY = 'struck-carry-lists'
+  function stashAnonLists() {
+    if (!user?.is_anonymous) return
+    const marks = Object.fromEntries(Object.entries(lists).filter(([, v]) => v.wishlist || v.visited))
+    if (!Object.keys(marks).length) return
+    try { localStorage.setItem(CARRY_KEY, JSON.stringify(marks)) } catch { /* private mode */ }
+  }
+  async function carryOverLists(u) {
+    if (!u || u.is_anonymous) return
+    let marks = null
+    try { marks = JSON.parse(localStorage.getItem(CARRY_KEY) || 'null') } catch { /* ignore */ }
+    if (!marks) return
+    try { localStorage.removeItem(CARRY_KEY) } catch { /* ignore */ }
+    for (const [spotId, v] of Object.entries(marks)) {
+      const patch = {}
+      if (v.wishlist) patch.wishlist = true
+      if (v.visited) patch.visited = true
+      try { await setUserList(u.id, spotId, patch) } catch (e) { console.warn('carry-over failed:', e) }
+    }
+  }
 
   async function refresh(userId) {
     try {
@@ -254,6 +281,7 @@ export default function App() {
 
   async function handleSendMagicLink() {
     if (!authEmail.trim()) return
+    stashAnonLists()
     setAuthStatus('Sending…')
     try {
       await sendMagicLink(authEmail.trim())
@@ -272,6 +300,7 @@ export default function App() {
   // rate limit can't lock you out of the review queue.
   async function handlePasswordSignIn() {
     if (!authEmail.trim() || !authPassword) return
+    stashAnonLists()
     setAuthStatus('Signing in…')
     try {
       const u = await signInWithPassword(authEmail.trim(), authPassword)
@@ -279,6 +308,7 @@ export default function App() {
       setProfile(await ensureProfile(u))
       setAuthPassword('')
       setAuthStatus('')
+      await carryOverLists(u)
       await refresh(u?.id)
     } catch (e) {
       console.warn('password sign-in failed:', e)
@@ -303,6 +333,7 @@ export default function App() {
   async function handleSignUp() {
     if (!authEmail.trim() || !authPassword) return
     if (authPassword.length < 6) { setAuthStatus('Password must be at least 6 characters.'); return }
+    stashAnonLists()
     setAuthStatus('Creating your account…')
     try {
       const u = await signUpWithPassword(authEmail.trim(), authPassword)
@@ -312,6 +343,7 @@ export default function App() {
         setProfile(await ensureProfile(u))
         setAuthPassword('')
         setAuthStatus('')
+        await carryOverLists(u)
         await refresh(u?.id)
       } else {
         setAuthStatus('Account created — check your email to confirm, then sign in.')
@@ -360,6 +392,7 @@ export default function App() {
   useEffect(() => {
     if (accountOpen && user) loadMySubmissions(user.id).then(setMySubs)
     if (accountOpen && profile?.is_admin) loadTrash().then(setTrash).catch((e) => console.warn('trash load failed:', e))
+    if (accountOpen && profile?.is_admin) loadReportedNotes().then(setReported)
   }, [accountOpen, user, profile])
 
   const hoods = useMemo(
@@ -918,6 +951,10 @@ export default function App() {
           onClose={() => setAccountOpen(false)}
           mySubs={mySubs} enriched={enriched} favCounts={favCounts}
           trash={trash}
+          onBeforeSignIn={stashAnonLists}
+          reported={reported}
+          onDismissReport={async (id) => { await dismissReports(id); setReported(await loadReportedNotes()) }}
+          onDeleteReported={async (id) => { await deleteComment(id); setReported(await loadReportedNotes()) }}
           onRestoreSpot={handleRestoreSpot} onPurgeSpot={handlePurgeSpot}
           onRestorePhoto={handleRestorePhoto} onPurgePhoto={handlePurgePhoto}
           onToggle={toggle}
@@ -999,6 +1036,12 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, signedIn, isA
   const [commentText, setCommentText] = useState('')
   const [commentBusy, setCommentBusy] = useState(false)
   const [commentErr, setCommentErr] = useState('')
+  const [reportedIds, setReportedIds] = useState([])
+  async function flagComment(id) {
+    if (!confirm('Report this note to the moderators?')) return
+    try { await reportComment(id); setReportedIds((r) => [...r, id]) }
+    catch (e) { console.warn('report failed:', e); alert('Couldn’t send that report — try again later.') }
+  }
   useEffect(() => { setCommentErr(''); loadComments(spot.id).then(setComments) }, [spot.id])
   async function submitComment() {
     if (!commentText.trim() || !user) return
@@ -1123,6 +1166,9 @@ function Modal({ spot, gIndex, setGIndex, onClose, onToggle, user, signedIn, isA
                   {(isAdmin || c.user_id === user?.id) && (
                     <button className="linkbtn" onClick={() => removeComment(c.id)}>Delete</button>
                   )}
+                  {c.user_id !== user?.id && (reportedIds.includes(c.id)
+                    ? <span>Reported — thanks</span>
+                    : <button className="linkbtn report" onClick={() => flagComment(c.id)}>Report</button>)}
                 </div>
               </div>
             ))}
@@ -1374,7 +1420,7 @@ function RecoveryForm({ authStatus, onSubmit, onCancel }) {
 function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
   authPassword, setAuthPassword, onSend, onPasswordSignIn,
   onSignUp, onPasswordReset, recoveryOpen, onSetNewPassword, onSignOut,
-  onClose, mySubs, enriched, favCounts, trash,
+  onClose, mySubs, enriched, favCounts, trash, onBeforeSignIn, reported, onDismissReport, onDeleteReported,
   onRestoreSpot, onPurgeSpot, onRestorePhoto, onPurgePhoto,
   onToggle, onOpenSpot,
   isAdmin, onApprove, onAdminSaveSpot, onOwnSaveSpot, onDeleteSpot }) {
@@ -1413,6 +1459,7 @@ function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
         ) : !signedIn ? (
           <div className="acct-body">
             <button className="google-btn" onClick={async () => {
+              onBeforeSignIn()
               try { await signInWithGoogle() } catch (e) { alert('Google sign-in isn’t available right now: ' + (e?.message || 'unknown error')) }
             }}>
               <svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.3-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.3-.4-3.5z"/></svg>
@@ -1462,6 +1509,11 @@ function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
                   Pending{queue.length ? ` (${queue.length})` : ''}
                 </button>
               )}
+              {isAdmin && reported.length > 0 && (
+                <button className={'atab' + (tab === 'reported' ? ' on' : '')} onClick={() => setTab('reported')}>
+                  Reported ({reported.length})
+                </button>
+              )}
               {isAdmin && (
                 <button className={'atab' + (tab === 'trash' ? ' on' : '')} onClick={() => setTab('trash')}>
                   Trash{(trash?.spots?.length || 0) + (trash?.photos?.length || 0) > 0 ? ` (${trash.spots.length + trash.photos.length})` : ''}
@@ -1509,6 +1561,23 @@ function AccountModal({ profile, user, authEmail, setAuthEmail, authStatus,
                           </div>
                         ))}
                       </>
+              )}
+              {tab === 'reported' && (
+                reported.length === 0
+                  ? <div className="hint-sm">No reported notes.</div>
+                  : reported.map((n) => (
+                    <div className="acct-spot" key={n.id}>
+                      <div className="comment-body">“{n.body}”</div>
+                      <div className="meta">
+                        on <button className="linkbtn" onClick={() => onOpenSpot(n.spotId)}>{n.spotName || 'a spot'}</button>
+                        {' · '}reported {n.reports} time{n.reports === 1 ? '' : 's'}
+                      </div>
+                      <div className="subrow-acts">
+                        <button className="ghost tiny" onClick={() => onDismissReport(n.id).catch((e) => alert('Couldn’t dismiss: ' + e.message))}>Keep note</button>
+                        <button className="ghost tiny danger" onClick={() => { if (confirm('Delete this note?')) onDeleteReported(n.id).catch((e) => alert('Couldn’t delete: ' + e.message)) }}>Delete note</button>
+                      </div>
+                    </div>
+                  ))
               )}
               {tab === 'trash' && (
                 (!trash?.spots?.length && !trash?.photos?.length)

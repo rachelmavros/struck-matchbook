@@ -4,7 +4,12 @@
 // Hardened: never throws past its own boundary — always returns 200 with results:[] on failure,
 // and includes a "debug" field describing what went wrong so it's visible from the browser Network tab.
 
+import { withinQuota } from './_quota.js'
+
 const CHICAGO = { lat: 41.8781, lng: -87.6298 }
+// Daily cap per visitor on place lookups (Google Places bills per request). Typing in a
+// search box triggers several lookups, so this is generous. Override with GEOCODE_LIMIT_PER_DAY.
+const GEOCODE_LIMIT = Number(process.env.GEOCODE_LIMIT_PER_DAY) || 600
 const HOOD_ALIASES = {
   'Financial District': 'The Loop',
   'Loop': 'The Loop',
@@ -101,6 +106,9 @@ async function nominatim(q) {
 export default async function handler(req, res) {
   const q = (req.query?.q || '').toString().trim()
   if (!q) return res.status(200).json({ results: [] })
+  if (!(await withinQuota(req, 'geo', GEOCODE_LIMIT))) {
+    return res.status(200).json({ results: [], limited: true })
+  }
 
   const key = process.env.GOOGLE_PLACES_KEY
   const debug = []

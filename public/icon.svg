@@ -1,9 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#efe6d0"/>
-  <rect x="196" y="150" width="40" height="250" rx="12" fill="#e3d7ba" stroke="#b7a37a" stroke-width="8"/>
-  <ellipse cx="216" cy="140" rx="62" ry="72" fill="#9e1b1f"/>
-  <ellipse cx="216" cy="128" rx="40" ry="48" fill="#e8631f"/>
-  <ellipse cx="216" cy="116" rx="18" ry="24" fill="#f0a24b"/>
-  <rect x="300" y="150" width="40" height="250" rx="12" fill="#e3d7ba" stroke="#b7a37a" stroke-width="8"/>
-  <ellipse cx="320" cy="140" rx="52" ry="60" fill="#741315"/>
+  <rect width="512" height="512" rx="112" fill="#ffffff"/>
+  <!-- a little matchbook: red flap with a lit match, cream face, striker strip -->
+  <g transform="translate(136 76)">
+    <rect width="240" height="360" rx="14" fill="#f6efe0" stroke="#e3d9c4" stroke-width="4"/>
+    <path d="M14 0h212a14 14 0 0 1 14 14v100H0V14A14 14 0 0 1 14 0z" fill="#b0201c"/>
+    <rect x="113" y="44" width="14" height="58" rx="7" fill="#f6efe0"/>
+    <ellipse cx="120" cy="38" rx="17" ry="20" fill="#ff6a2a"/>
+    <ellipse cx="120" cy="33" rx="9" ry="11" fill="#ffd27a"/>
+    <text x="120" y="232" text-anchor="middle" font-family="Oswald, 'Arial Narrow', Arial, sans-serif" font-weight="700" font-size="64" letter-spacing="3" fill="#1f4d3a">STRUCK</text>
+    <path d="M0 316h240v30a14 14 0 0 1-14 14H14A14 14 0 0 1 0 346z" fill="#2a221c"/>
+    <path d="M10 316l-10 10M30 316l-26 26M50 316l-40 40M70 316l-40 40M90 316l-40 40M110 316l-40 40M130 316l-40 40M150 316l-40 40M170 316l-40 40M190 316l-40 40M210 316l-40 40M230 316l-40 40M240 326l-30 30M240 346l-10 10" stroke="#4a3f35" stroke-width="5"/>
+  </g>
 </svg>

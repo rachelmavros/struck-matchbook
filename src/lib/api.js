@@ -309,3 +309,32 @@ export async function setUserList(userId, spotId, patch) {
   await supabase.from('user_lists').upsert(row, { onConflict: 'user_id,spot_id' })
   return row
 }
+
+/* ---------- note reports ---------- */
+
+export async function reportComment(commentId) {
+  const { error } = await supabase.from('comment_reports').insert({ comment_id: commentId })
+  // Already reported by this person (primary key) counts as success.
+  if (error && error.code !== '23505') throw error
+}
+
+// Admin: reported notes, most-reported first, with the spot they're on.
+export async function loadReportedNotes() {
+  const { data, error } = await supabase
+    .from('comment_reports')
+    .select('comment_id,created_at,spot_comments(id,body,created_at,spot_id,spots(name))')
+  if (error) { console.warn(error.message); return [] }
+  const byNote = {}
+  for (const r of data || []) {
+    const c = r.spot_comments
+    if (!c) continue
+    byNote[c.id] ||= { id: c.id, body: c.body, createdAt: c.created_at, spotId: c.spot_id, spotName: c.spots?.name || '', reports: 0 }
+    byNote[c.id].reports++
+  }
+  return Object.values(byNote).sort((a, b) => b.reports - a.reports)
+}
+
+export async function dismissReports(commentId) {
+  const { error } = await supabase.from('comment_reports').delete().eq('comment_id', commentId)
+  if (error) throw error
+}

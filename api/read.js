@@ -3,37 +3,13 @@
 // bbox is [xmin,ymin,xmax,ymax], normalized 0..1 within the image actually sent.
 // Keeps ANTHROPIC_API_KEY server-side. Model is configurable via MATCHBOOK_MODEL.
 
-import { createHmac } from 'node:crypto'
+import { withinQuota } from './_quota.js'
 
 const MODEL = process.env.MATCHBOOK_MODEL || 'claude-sonnet-5'
 
 // Daily cap per visitor. A plain photo is one read; a dense collage is read in up to five
 // passes, so 250 reads/day is roughly 50 dense photos. Override with READ_LIMIT_PER_DAY.
 const READ_LIMIT = Number(process.env.READ_LIMIT_PER_DAY) || 250
-
-// Count this read against the visitor's daily quota. Only a keyed hash of IP + date is stored.
-// Fails open (allows the read) if Supabase or the quota migration isn't available.
-async function withinQuota(req) {
-  const url = process.env.VITE_SUPABASE_URL, anon = process.env.VITE_SUPABASE_ANON_KEY
-  const secret = process.env.RATE_LIMIT_SECRET || process.env.ANTHROPIC_API_KEY
-  if (!url || !anon || !secret) return true
-  const ip = String(req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || '')
-    .split(',')[0].trim()
-  if (!ip) return true
-  const key = createHmac('sha256', secret).update(ip + '|' + new Date().toISOString().slice(0, 10)).digest('hex')
-  try {
-    const r = await fetch(`${url}/rest/v1/rpc/take_read_quota`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', apikey: anon, authorization: `Bearer ${anon}` },
-      body: JSON.stringify({ p_key: key, p_limit: READ_LIMIT }),
-    })
-    if (!r.ok) { console.warn('quota check failed:', r.status, await r.text()); return true }
-    return (await r.json()) !== false
-  } catch (e) {
-    console.warn('quota check error:', e)
-    return true
-  }
-}
 
 const PROMPT = `Photo of one or more Chicago matchbooks/matchboxes, possibly a dense collage of many.
 For each legible one, report its cover details AND a tight bounding box around just that single
@@ -53,7 +29,7 @@ export default async function handler(req, res) {
   const key = process.env.ANTHROPIC_API_KEY
   if (!key) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' })
 
-  if (!(await withinQuota(req))) {
+  if (!(await withinQuota(req, 'read', READ_LIMIT))) {
     return res.status(429).json({ error: 'daily limit reached' })
   }
 
